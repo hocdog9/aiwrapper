@@ -57,8 +57,15 @@ type ProviderSettings = {
 
 type AppSettings = Record<ProviderName, ProviderSettings>;
 
+type SettingsProfile = {
+  id: string;
+  name: string;
+  settings: AppSettings;
+};
+
 const CHAT_HISTORY_KEY = "consensus-ai-chat-history";
 const SETTINGS_KEY = "consensus-ai-settings";
+const PROFILES_KEY = "consensus-ai-profiles";
 
 const defaultSettings: AppSettings = {
   GPT: { enabled: true, apiKey: "", model: "gpt-4o-mini" },
@@ -94,6 +101,10 @@ function createChatSession(): ChatSession {
   };
 }
 
+function createSettingsProfile(name: string, settings: AppSettings = defaultSettings): SettingsProfile {
+  return { id: crypto.randomUUID(), name, settings };
+}
+
 export default function Home() {
   const [input, setInput] = useState("");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -105,6 +116,10 @@ export default function Home() {
   const [showClaims, setShowClaims] = useState(false);
   const [pastedImage, setPastedImage] = useState<ChatTurn["image"]>();
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState("");
+  const [profileName, setProfileName] = useState("Default");
+  const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
@@ -112,19 +127,43 @@ export default function Home() {
   const result = activeSession?.result ?? null;
 
   useEffect(() => {
-    const savedSettings = window.localStorage.getItem(SETTINGS_KEY);
-    if (savedSettings) {
+    const savedProfiles = window.localStorage.getItem(PROFILES_KEY);
+    if (savedProfiles) {
       try {
-        setSettings({ ...defaultSettings, ...JSON.parse(savedSettings) });
+        const parsed = JSON.parse(savedProfiles) as SettingsProfile[];
+        if (parsed.length) {
+          const profile = parsed[0];
+          setProfiles(parsed);
+          setActiveProfileId(profile.id);
+          setProfileName(profile.name);
+          setSettings(profile.settings);
+          setProfilesLoaded(true);
+          return;
+        }
       } catch {
-        window.localStorage.removeItem(SETTINGS_KEY);
+        window.localStorage.removeItem(PROFILES_KEY);
       }
     }
+    const savedSettings = window.localStorage.getItem(SETTINGS_KEY);
+    const migratedSettings = savedSettings ? { ...defaultSettings, ...JSON.parse(savedSettings) } : defaultSettings;
+    const defaultProfile = createSettingsProfile("Default", migratedSettings);
+    setProfiles([defaultProfile]);
+    setActiveProfileId(defaultProfile.id);
+    setProfileName(defaultProfile.name);
+    setSettings(defaultProfile.settings);
+    setProfilesLoaded(true);
   }, []);
 
   useEffect(() => {
-    window.localStorage.setItem(SETTINGS_KEY, JSON.stringify(settings));
-  }, [settings]);
+    if (!profilesLoaded) return;
+    const updatedProfiles = profiles.map((profile) => profile.id === activeProfileId
+      ? { ...profile, name: profileName, settings }
+      : profile);
+    if (JSON.stringify(updatedProfiles) !== JSON.stringify(profiles)) {
+      setProfiles(updatedProfiles);
+    }
+    window.localStorage.setItem(PROFILES_KEY, JSON.stringify(updatedProfiles));
+  }, [settings, profileName, activeProfileId, profilesLoaded, profiles]);
 
   useEffect(() => {
     const savedHistory = window.localStorage.getItem(CHAT_HISTORY_KEY);
@@ -241,6 +280,31 @@ export default function Home() {
     setSessions((current) => current.map((item) => item.id === session.id ? { ...item, title: nextTitle.trim().slice(0, 60) } : item));
   }
 
+  function switchProfile(profile: SettingsProfile) {
+    setActiveProfileId(profile.id);
+    setProfileName(profile.name);
+    setSettings(profile.settings);
+  }
+
+  function saveNewProfile() {
+    const name = profileName.trim() || "New profile";
+    const profile = createSettingsProfile(name, settings);
+    setProfiles((current) => [...current, profile]);
+    setActiveProfileId(profile.id);
+  }
+
+  function deleteProfile() {
+    if (profiles.length <= 1) return;
+    const profile = profiles.find((item) => item.id === activeProfileId);
+    if (!profile || !window.confirm(`Delete profile "${profile.name}"?`)) return;
+    const remaining = profiles.filter((item) => item.id !== activeProfileId);
+    const nextProfile = remaining[0];
+    setProfiles(remaining);
+    setActiveProfileId(nextProfile.id);
+    setProfileName(nextProfile.name);
+    setSettings(nextProfile.settings);
+  }
+
   function deleteChat(session: ChatSession) {
     if (!window.confirm(`Delete "${session.title}"?`)) return;
 
@@ -288,6 +352,28 @@ export default function Home() {
           <div className={styles.settingsPanel}>
             <div className={styles.historyHeader}>
               <p className={styles.mutedLabel}>Model settings</p>
+            </div>
+            <select
+              className={styles.settingsInput}
+              value={activeProfileId}
+              onChange={(event) => {
+                const profile = profiles.find((item) => item.id === event.target.value);
+                if (profile) switchProfile(profile);
+              }}
+              aria-label="Settings profile"
+            >
+              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+            </select>
+            <input
+              className={styles.settingsInput}
+              value={profileName}
+              onChange={(event) => setProfileName(event.target.value)}
+              placeholder="Profile name"
+              aria-label="Profile name"
+            />
+            <div className={styles.profileActions}>
+              <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
+              <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
             </div>
             <p className={styles.settingsNote}>Keys are stored locally in this browser and sent only with your requests.</p>
             {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => (

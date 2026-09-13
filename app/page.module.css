@@ -156,6 +156,32 @@
   line-height: 1.4;
 }
 
+.profileActions {
+  display: flex;
+  gap: 6px;
+}
+
+.profileButton {
+  flex: 1;
+  border: 1px solid #d1d5db;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 7px 8px;
+  font: inherit;
+  font-size: 0.72rem;
+  cursor: pointer;
+}
+
+.profileButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.dark .profileButton {
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
 .providerSetting {
   display: grid;
   gap: 6px;
