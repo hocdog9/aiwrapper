@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
 
 const THEME_KEY = "consensus-ai-theme";
@@ -120,6 +121,11 @@ export default function Home() {
   const [activeProfileId, setActiveProfileId] = useState("");
   const [profileName, setProfileName] = useState("Default");
   const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [userEmail, setUserEmail] = useState("");
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"login" | "signup">("login");
+  const [authError, setAuthError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
@@ -155,6 +161,36 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
+    let active = true;
+    async function loadAccount() {
+      const { data } = await supabase.auth.getUser();
+      if (!active || !data.user) return;
+      setUserEmail(data.user.email ?? "");
+      const { data: remoteProfiles } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
+      if (remoteProfiles?.length) {
+        const nextProfiles = remoteProfiles as SettingsProfile[];
+        setProfiles(nextProfiles);
+        setActiveProfileId(nextProfiles[0].id);
+        setProfileName(nextProfiles[0].name);
+        setSettings(nextProfiles[0].settings);
+      }
+    }
+    loadAccount();
+    const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setUserEmail(session.user.email ?? "");
+        loadAccount();
+      } else {
+        setUserEmail("");
+      }
+    });
+    return () => {
+      active = false;
+      listener.subscription.unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!profilesLoaded) return;
     const updatedProfiles = profiles.map((profile) => profile.id === activeProfileId
       ? { ...profile, name: profileName, settings }
@@ -163,7 +199,19 @@ export default function Home() {
       setProfiles(updatedProfiles);
     }
     window.localStorage.setItem(PROFILES_KEY, JSON.stringify(updatedProfiles));
-  }, [settings, profileName, activeProfileId, profilesLoaded, profiles]);
+    if (userEmail && activeProfileId) {
+      supabase.auth.getUser().then(({ data }) => {
+        if (data.user) {
+          supabase.from("api_profiles").upsert({
+            id: activeProfileId,
+            user_id: data.user.id,
+            name: profileName,
+            settings,
+          }).then();
+        }
+      });
+    }
+  }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail]);
 
   useEffect(() => {
     const savedHistory = window.localStorage.getItem(CHAT_HISTORY_KEY);
@@ -303,6 +351,27 @@ export default function Home() {
     setActiveProfileId(nextProfile.id);
     setProfileName(nextProfile.name);
     setSettings(nextProfile.settings);
+    if (userEmail) {
+      supabase.from("api_profiles").delete().eq("id", activeProfileId).then();
+    }
+  }
+
+  async function handleAuth(event: FormEvent) {
+    event.preventDefault();
+    setAuthError("");
+    const result = authMode === "login"
+      ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+      : await supabase.auth.signUp({ email: authEmail, password: authPassword });
+    if (result.error) setAuthError(result.error.message);
+    else {
+      setAuthEmail("");
+      setAuthPassword("");
+    }
+  }
+
+  async function signOut() {
+    await supabase.auth.signOut();
+    setUserEmail("");
   }
 
   function deleteChat(session: ChatSession) {
@@ -375,7 +444,24 @@ export default function Home() {
               <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
               <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
             </div>
-            <p className={styles.settingsNote}>Keys are stored locally in this browser and sent only with your requests.</p>
+            <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers." : "Keys are stored locally until you sign in."}</p>
+            {userEmail ? (
+              <div className={styles.accountRow}>
+                <span>{userEmail}</span>
+                <button type="button" className={styles.profileButton} onClick={signOut}>Sign out</button>
+              </div>
+            ) : (
+              <form className={styles.authForm} onSubmit={handleAuth}>
+                <p className={styles.settingsNote}>Sign in to use these profiles on other browsers.</p>
+                <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
+                <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
+                {authError && <p className={styles.authError}>{authError}</p>}
+                <button type="submit" className={styles.profileButton}>{authMode === "login" ? "Sign in" : "Create account"}</button>
+                <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
+                  {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
+                </button>
+              </form>
+            )}
             {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => (
               <div key={provider} className={styles.providerSetting}>
                 <label className={styles.providerCheck}>
