@@ -126,6 +126,7 @@ export default function Home() {
   const [authPassword, setAuthPassword] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
   const [authError, setAuthError] = useState("");
+  const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
@@ -166,7 +167,11 @@ export default function Home() {
       const { data } = await supabase.auth.getUser();
       if (!active || !data.user) return;
       setUserEmail(data.user.email ?? "");
-      const { data: remoteProfiles } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
+      const { data: remoteProfiles, error: remoteError } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
+      if (remoteError) {
+        setProfileSyncError(`Profile storage error: ${remoteError.message}`);
+        return;
+      }
       if (remoteProfiles?.length) {
         const nextProfiles = remoteProfiles as SettingsProfile[];
         setProfiles(nextProfiles);
@@ -207,7 +212,10 @@ export default function Home() {
             user_id: data.user.id,
             name: profileName,
             settings,
-          }).then();
+          }).then(({ error: saveError }) => {
+            if (saveError) setProfileSyncError(`Profile save error: ${saveError.message}`);
+            else setProfileSyncError("");
+          });
         }
       });
     }
@@ -352,7 +360,9 @@ export default function Home() {
     setProfileName(nextProfile.name);
     setSettings(nextProfile.settings);
     if (userEmail) {
-      supabase.from("api_profiles").delete().eq("id", activeProfileId).then();
+      supabase.from("api_profiles").delete().eq("id", activeProfileId).then(({ error: deleteError }) => {
+        if (deleteError) setProfileSyncError(`Profile delete error: ${deleteError.message}`);
+      });
     }
   }
 
@@ -445,6 +455,7 @@ export default function Home() {
               <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
             </div>
             <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers." : "Keys are stored locally until you sign in."}</p>
+            {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
             {userEmail ? (
               <div className={styles.accountRow}>
                 <span>{userEmail}</span>
