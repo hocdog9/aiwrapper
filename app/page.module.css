@@ -442,6 +442,42 @@
   color: inherit;
 }
 
+.messageContent :global(.katex-display),
+.providerContent :global(.katex-display),
+.resultBody :global(.katex-display) {
+  margin: 1rem 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.25rem 0;
+}
+
+.messageContent :global(.katex),
+.providerContent :global(.katex),
+.resultBody :global(.katex) {
+  font-size: 1.05em;
+}
+
+.messageContent hr,
+.providerContent hr,
+.resultBody hr {
+  margin: 1.25rem 0;
+  border: 0;
+  border-top: 1px solid rgba(148, 163, 184, 0.3);
+}
+
+.messageContent h1,
+.messageContent h2,
+.messageContent h3,
+.providerContent h1,
+.providerContent h2,
+.providerContent h3,
+.resultBody h1,
+.resultBody h2,
+.resultBody h3 {
+  margin: 1.1rem 0 0.55rem;
+  line-height: 1.3;
+}
+
 .messageImage {
   display: block;
   max-width: min(420px, 100%);

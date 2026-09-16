@@ -2,6 +2,8 @@
 
 import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
+import rehypeKatex from "rehype-katex";
+import remarkMath from "remark-math";
 import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
 
@@ -67,6 +69,14 @@ type SettingsProfile = {
 const CHAT_HISTORY_KEY = "consensus-ai-chat-history";
 const SETTINGS_KEY = "consensus-ai-settings";
 const PROFILES_KEY = "consensus-ai-profiles";
+
+function FormattedMarkdown({ children }: { children: string }) {
+  return (
+    <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
+      {children}
+    </ReactMarkdown>
+  );
+}
 
 const defaultSettings: AppSettings = {
   GPT: { enabled: true, apiKey: "", model: "gpt-4o-mini" },
@@ -561,7 +571,7 @@ export default function Home() {
               <div className={styles.messageBubble}>
                 <span className={styles.messageRole}>{message.role === "user" ? "You" : "Consensus"}</span>
                 {message.image && <img className={styles.messageImage} src={message.image.dataUrl} alt="Pasted prompt image" />}
-                <div className={styles.messageContent}><ReactMarkdown>{message.content}</ReactMarkdown></div>
+                <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
               </div>
             </div>
           ))}
@@ -587,7 +597,7 @@ export default function Home() {
                 <span className={styles.agreementPill}>{result.summary}</span>
               </div>
 
-              <div className={styles.resultBody}><ReactMarkdown>{result.consensus}</ReactMarkdown></div>
+              <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
 
               <div className={styles.metaGrid}>
                 <div className={styles.metaCard}>
@@ -639,7 +649,7 @@ export default function Home() {
                 {result.responses.map((response) => (
                   <details key={response.provider} className={styles.providerCard}>
                     <summary>{response.provider}</summary>
-                    <div className={styles.providerContent}><ReactMarkdown>{response.content}</ReactMarkdown></div>
+                    <div className={styles.providerContent}><FormattedMarkdown>{response.content}</FormattedMarkdown></div>
                   </details>
                 ))}
               </div>
