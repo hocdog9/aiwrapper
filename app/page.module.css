@@ -510,6 +510,21 @@
   margin: 0.3rem 0;
 }
 
+.metaCard li {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.claimMarker {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.metaCard li p {
+  margin: 0;
+}
+
 .loadingBubble {
   background: #f9fafb;
 }
