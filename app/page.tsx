@@ -626,13 +626,20 @@ export default function Home() {
                 </div>
                 <div className={styles.resultActions}>
                   <span className={styles.agreementPill}>{result.summary}</span>
-                  <button type="button" className={styles.regenerateButton} onClick={retryLastRequest} disabled={isLoading}>
-                    {isLoading ? "Trying again…" : "Regenerate"}
-                  </button>
                 </div>
               </div>
 
               <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
+              <button
+                type="button"
+                className={styles.regenerateButton}
+                onClick={retryLastRequest}
+                disabled={isLoading}
+                aria-label="Regenerate response"
+                title="Regenerate response"
+              >
+                <span aria-hidden="true">↻</span>
+              </button>
 
               <div className={styles.metaGrid}>
                 <div className={styles.metaCard}>
