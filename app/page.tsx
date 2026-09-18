@@ -331,7 +331,12 @@ export default function Home() {
     lastRequestRef.current = { messages: requestMessages, userTurn, sessionId: activeSession.id };
 
     setSessions((current) => current.map((session) => session.id === activeSession.id
-      ? { ...session, chat: [...session.chat, userTurn], title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title }
+      ? {
+          ...session,
+          chat: [...session.chat, userTurn],
+          result: null,
+          title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title,
+        }
       : session));
     setInput("");
     setPastedImages([]);
