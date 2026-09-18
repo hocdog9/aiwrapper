@@ -71,9 +71,13 @@ const SETTINGS_KEY = "consensus-ai-settings";
 const PROFILES_KEY = "consensus-ai-profiles";
 
 function FormattedMarkdown({ children }: { children: string }) {
+  const normalized = children
+    .replace(/\\\[([\s\S]*?)\\\]/g, "$$$$$1$$$$")
+    .replace(/\\\(([\s\S]*?)\\\)/g, "$$$1$$");
+
   return (
     <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
-      {children}
+      {normalized}
     </ReactMarkdown>
   );
 }
