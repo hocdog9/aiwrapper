@@ -29,6 +29,7 @@ type ChatTurn = {
     dataUrl: string;
     mimeType: string;
   };
+  images?: Array<{ dataUrl: string; mimeType: string }>;
 };
 
 type ResponsePayload = {
@@ -129,7 +130,7 @@ export default function Home() {
   const [error, setError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
   const [showClaims, setShowClaims] = useState(false);
-  const [pastedImage, setPastedImage] = useState<ChatTurn["image"]>();
+  const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
@@ -280,16 +281,16 @@ export default function Home() {
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     const trimmed = input.trim();
-    if ((!trimmed && !pastedImage) || isLoading) return;
+    if ((!trimmed && !pastedImages.length) || isLoading) return;
 
-    const userTurn: ChatTurn = { role: "user", content: trimmed, image: pastedImage };
+    const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
     const requestMessages = [...chat, userTurn];
 
     setSessions((current) => current.map((session) => session.id === activeSession?.id
       ? { ...session, chat: [...session.chat, userTurn], title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title }
       : session));
     setInput("");
-    setPastedImage(undefined);
+    setPastedImages([]);
     setError(null);
     setIsLoading(true);
     setStatusText("Asking GPT…");
@@ -413,7 +414,7 @@ export default function Home() {
       }
     }
     setInput("");
-    setPastedImage(undefined);
+                  setPastedImages([]);
     setError(null);
     setStatusText("Ready to compare model responses.");
   }
@@ -574,7 +575,9 @@ export default function Home() {
             <div key={`${message.role}-${index}`} className={`${styles.messageRow} ${message.role === "user" ? styles.userRow : styles.assistantRow}`}>
               <div className={styles.messageBubble}>
                 <span className={styles.messageRole}>{message.role === "user" ? "You" : "Consensus"}</span>
-                {message.image && <img className={styles.messageImage} src={message.image.dataUrl} alt="Pasted prompt image" />}
+                {(message.images ?? (message.image ? [message.image] : [])).map((image, imageIndex) => (
+                  <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
+                ))}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
               </div>
             </div>
@@ -679,7 +682,7 @@ export default function Home() {
               const reader = new FileReader();
               reader.onload = () => {
                 if (typeof reader.result === "string") {
-                  setPastedImage({ dataUrl: reader.result, mimeType: file.type });
+                  setPastedImages((current) => [...current, { dataUrl: reader.result as string, mimeType: file.type }]);
                 }
               };
               reader.readAsDataURL(file);
@@ -696,15 +699,19 @@ export default function Home() {
               }
             }}
           />
-          {pastedImage && (
-            <div className={styles.imagePreviewWrap}>
-              <img className={styles.imagePreview} src={pastedImage.dataUrl} alt="Pasted prompt preview" />
-              <button type="button" className={styles.removeImageButton} onClick={() => setPastedImage(undefined)} aria-label="Remove pasted image">
-                ×
-              </button>
+          {pastedImages.length > 0 && (
+            <div className={styles.imagePreviewList}>
+              {pastedImages.map((image, imageIndex) => (
+                <div key={`${image.dataUrl}-${imageIndex}`} className={styles.imagePreviewWrap}>
+                  <img className={styles.imagePreview} src={image.dataUrl} alt={`Pasted prompt preview ${imageIndex + 1}`} />
+                  <button type="button" className={styles.removeImageButton} onClick={() => setPastedImages((current) => current.filter((_, index) => index !== imageIndex))} aria-label={`Remove pasted image ${imageIndex + 1}`}>
+                    ×
+                  </button>
+                </div>
+              ))}
             </div>
           )}
-          <button type="submit" className={styles.submitButton} disabled={isLoading || (!input.trim() && !pastedImage)}>
+          <button type="submit" className={styles.submitButton} disabled={isLoading || (!input.trim() && !pastedImages.length)}>
             {isLoading ? "Thinking…" : "Send"}
           </button>
         </form>

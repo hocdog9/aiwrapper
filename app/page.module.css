@@ -747,6 +747,14 @@
   flex-shrink: 0;
 }
 
+.imagePreviewList {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  flex-shrink: 0;
+  max-width: min(240px, 45%);
+}
+
 .imagePreview {
   display: block;
   width: 52px;

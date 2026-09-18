@@ -16,6 +16,7 @@ type ChatMessage = {
   role: string;
   content: string;
   image?: ImageAttachment;
+  images?: ImageAttachment[];
 };
 
 type RequestSettings = Partial<Record<"GPT" | "Gemini" | "Claude", { enabled?: boolean; apiKey?: string; model?: string }>>;
@@ -25,7 +26,7 @@ function sanitizeText(value: unknown): string {
 }
 
 function buildPrompt(messages: ChatMessage[]): string {
-  const recent = messages.slice(-MAX_MESSAGES).map((message) => `${message.role}: ${sanitizeText(message.content)}${message.image ? "\n[Image attached]" : ""}`).join("\n\n");
+  const recent = messages.slice(-MAX_MESSAGES).map((message) => `${message.role}: ${sanitizeText(message.content)}${(message.images?.length || message.image) ? "\n[Image attached]" : ""}`).join("\n\n");
   return `You are answering as a careful analyst. Provide a concise but substantive answer.
 
 Conversation:
@@ -58,14 +59,14 @@ ${answerSet}
 Return only the consolidated answer. Do not mention the models or the consolidation process.`;
 }
 
-async function callOpenAI(prompt: string, image?: ImageAttachment, apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL || "gpt-4o-mini") {
+async function callOpenAI(prompt: string, images: ImageAttachment[] = [], apiKey = process.env.OPENAI_API_KEY, model = process.env.OPENAI_MODEL || "gpt-4o-mini") {
   if (!apiKey) return null;
 
   const client = new OpenAI({ apiKey });
   const response = await client.responses.create({
     model,
-    input: image
-      ? [{ role: "user", content: [{ type: "input_text", text: prompt }, { type: "input_image", image_url: image.dataUrl, detail: "low" }] }]
+    input: images.length
+      ? [{ role: "user", content: [{ type: "input_text", text: prompt }, ...images.map((image) => ({ type: "input_image" as const, image_url: image.dataUrl, detail: "low" as const }))] }]
       : prompt,
     temperature: 0.4,
   });
@@ -73,24 +74,24 @@ async function callOpenAI(prompt: string, image?: ImageAttachment, apiKey = proc
   return response.output_text || "";
 }
 
-async function callGemini(prompt: string, image?: ImageAttachment, apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || "gemini-3.6-flash") {
+async function callGemini(prompt: string, images: ImageAttachment[] = [], apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || "gemini-3.6-flash") {
   if (!apiKey) return null;
 
   const client = new GoogleGenAI({ apiKey });
   const response = await client.models.generateContent({
     model,
-    contents: [{ role: "user", parts: [{ text: prompt }, ...(image ? [{ inlineData: { mimeType: image.mimeType, data: image.dataUrl.split(",")[1] } }] : [])] }],
+    contents: [{ role: "user", parts: [{ text: prompt }, ...images.map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.dataUrl.split(",")[1] } }))] }],
   });
 
   return (response as any)?.text || "";
 }
 
-async function callClaude(prompt: string, image?: ImageAttachment, apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022") {
+async function callClaude(prompt: string, images: ImageAttachment[] = [], apiKey = process.env.ANTHROPIC_API_KEY, model = process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022") {
   if (!apiKey) return null;
 
   const client = new Anthropic({ apiKey });
   const content: any[] = [
-    ...(image ? [{ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.dataUrl.split(",")[1] } }] : []),
+    ...images.map((image) => ({ type: "image", source: { type: "base64", media_type: image.mimeType, data: image.dataUrl.split(",")[1] } })),
     { type: "text", text: prompt },
   ];
   const response = await client.messages.create({
@@ -131,9 +132,11 @@ export async function POST(request: NextRequest) {
       ? body.messages.filter((message: unknown) => !!message && typeof message === "object" && "role" in message && "content" in message).map((message: any) => ({
           role: String((message as { role?: unknown }).role ?? "user"),
           content: String((message as { content?: unknown }).content ?? ""),
-          ...(message.image && typeof message.image.dataUrl === "string" && typeof message.image.mimeType === "string"
-            ? { image: { dataUrl: message.image.dataUrl, mimeType: message.image.mimeType } }
-            : {}),
+          ...(Array.isArray(message.images)
+            ? { images: message.images.filter((image: any) => typeof image?.dataUrl === "string" && typeof image?.mimeType === "string").map((image: any) => ({ dataUrl: image.dataUrl, mimeType: image.mimeType })) }
+            : message.image && typeof message.image.dataUrl === "string" && typeof message.image.mimeType === "string"
+              ? { images: [{ dataUrl: message.image.dataUrl, mimeType: message.image.mimeType }] }
+              : {}),
         }))
       : [];
 
@@ -142,7 +145,7 @@ export async function POST(request: NextRequest) {
     }
 
     const prompt = buildPrompt(messages);
-    const latestImage = messages[messages.length - 1]?.image;
+    const latestImages = messages[messages.length - 1]?.images ?? [];
     const configured = (provider: "GPT" | "Gemini" | "Claude", envKey: string | undefined, envModel: string, runner: (key: string, model: string) => Promise<string | null>) => {
       const choice = requestSettings[provider];
       const apiKey = choice?.apiKey?.trim() || envKey;
@@ -150,9 +153,9 @@ export async function POST(request: NextRequest) {
       return [{ provider, runner: () => runner(apiKey, choice?.model?.trim() || envModel) }];
     };
     const tasks = [
-      ...configured("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(prompt, latestImage, key, model)),
-      ...configured("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(prompt, latestImage, key, model)),
-      ...configured("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(prompt, latestImage, key, model)),
+      ...configured("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(prompt, latestImages, key, model)),
+      ...configured("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(prompt, latestImages, key, model)),
+      ...configured("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(prompt, latestImages, key, model)),
     ];
 
     if (!tasks.length) {
@@ -214,9 +217,9 @@ export async function POST(request: NextRequest) {
       return () => runner(apiKey, choice?.model?.trim() || envModel);
     };
     const synthesisRunners = [
-      synthesisConfig("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(consolidationPrompt, undefined, key, model)),
-      synthesisConfig("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(consolidationPrompt, undefined, key, model)),
-      synthesisConfig("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(consolidationPrompt, undefined, key, model)),
+      synthesisConfig("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(consolidationPrompt, [], key, model)),
+      synthesisConfig("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(consolidationPrompt, [], key, model)),
+      synthesisConfig("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(consolidationPrompt, [], key, model)),
     ].filter((runner): runner is () => Promise<string | null> => Boolean(runner));
     let consolidatedAnswer = "";
     for (const runSynthesis of synthesisRunners) {
