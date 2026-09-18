@@ -144,6 +144,7 @@ export default function Home() {
   const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const lastRequestRef = useRef<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const chat = activeSession?.chat ?? [];
   const result = activeSession?.result ?? null;
@@ -278,23 +279,7 @@ export default function Home() {
     }
   }, [chat, result, isLoading]);
 
-  async function handleSubmit(event: FormEvent) {
-    event.preventDefault();
-    const trimmed = input.trim();
-    if ((!trimmed && !pastedImages.length) || isLoading) return;
-
-    const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
-    const requestMessages = [...chat, userTurn];
-
-    setSessions((current) => current.map((session) => session.id === activeSession?.id
-      ? { ...session, chat: [...session.chat, userTurn], title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title }
-      : session));
-    setInput("");
-    setPastedImages([]);
-    setError(null);
-    setIsLoading(true);
-    setStatusText("Asking GPT…");
-
+  async function runRequest(requestMessages: ChatTurn[], userTurn: ChatTurn, sessionId: string) {
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
@@ -310,7 +295,7 @@ export default function Home() {
 
       setStatusText("Consensus ready.");
       setSessions((current) => current.map((session) => {
-        if (session.id !== activeSession?.id) return session;
+        if (session.id !== sessionId) return session;
         const currentChat = session.chat;
         const chatWithUserTurn = currentChat.some(
           (message) => message.role === "user" && message.content === userTurn.content
@@ -334,6 +319,35 @@ export default function Home() {
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    const trimmed = input.trim();
+    if ((!trimmed && !pastedImages.length) || isLoading || !activeSession) return;
+
+    const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
+    const requestMessages = [...chat, userTurn];
+    lastRequestRef.current = { messages: requestMessages, userTurn, sessionId: activeSession.id };
+
+    setSessions((current) => current.map((session) => session.id === activeSession.id
+      ? { ...session, chat: [...session.chat, userTurn], title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title }
+      : session));
+    setInput("");
+    setPastedImages([]);
+    setError(null);
+    setIsLoading(true);
+    setStatusText("Asking GPT…");
+    await runRequest(requestMessages, userTurn, activeSession.id);
+  }
+
+  async function retryLastRequest() {
+    const lastRequest = lastRequestRef.current;
+    if (!lastRequest || isLoading) return;
+    setError(null);
+    setIsLoading(true);
+    setStatusText("Trying again…");
+    await runRequest(lastRequest.messages, lastRequest.userTurn, lastRequest.sessionId);
   }
 
   function startNewChat() {
@@ -592,7 +606,16 @@ export default function Home() {
             </div>
           )}
 
-          {error && <div className={styles.errorCard}>{error}</div>}
+          {error && (
+            <div className={styles.errorCard}>
+              <span>{error}</span>
+              {lastRequestRef.current && (
+                <button type="button" className={styles.retryButton} onClick={retryLastRequest} disabled={isLoading}>
+                  Try again
+                </button>
+              )}
+            </div>
+          )}
 
           {result && (
             <article className={styles.resultPanel}>

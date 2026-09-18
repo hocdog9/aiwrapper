@@ -554,6 +554,20 @@
   padding: 12px 14px;
 }
 
+.retryButton {
+  display: block;
+  margin-top: 10px;
+  border: 1px solid currentColor;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
 .resultPanel {
   max-width: 920px;
   margin: 18px auto 0;
