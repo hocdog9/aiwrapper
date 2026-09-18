@@ -603,13 +603,13 @@ export default function Home() {
                 <div className={styles.metaCard}>
                   <h4>Where they agree</h4>
                   <ul>
-                    {result.agreements.length ? result.agreements.map((item) => <li key={item}><span className={styles.claimMarker}>✓</span><FormattedMarkdown>{item}</FormattedMarkdown></li>) : <li>Not enough shared evidence.</li>}
+                    {result.agreements.length ? result.agreements.map((item) => <li key={item}><span className={styles.claimMarker}>✓</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>Not enough shared evidence.</li>}
                   </ul>
                 </div>
                 <div className={styles.metaCard}>
                   <h4>Where they differ</h4>
                   <ul>
-                    {result.disagreements.length ? result.disagreements.map((item) => <li key={item}><span className={styles.claimMarker}>!</span><FormattedMarkdown>{item}</FormattedMarkdown></li>) : <li>No material disagreements surfaced.</li>}
+                    {result.disagreements.length ? result.disagreements.map((item) => <li key={item}><span className={styles.claimMarker}>!</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>No material disagreements surfaced.</li>}
                   </ul>
                 </div>
               </div>

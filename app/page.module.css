@@ -514,6 +514,7 @@
   display: flex;
   align-items: flex-start;
   gap: 8px;
+  min-width: 0;
 }
 
 .claimMarker {
@@ -521,8 +522,18 @@
   font-weight: 700;
 }
 
-.metaCard li p {
+.claimBody {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.claimBody p {
   margin: 0;
+}
+
+.claimBody :global(.katex-display) {
+  max-width: 100%;
+  overflow-x: auto;
 }
 
 .loadingBubble {
