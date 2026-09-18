@@ -624,7 +624,12 @@ export default function Home() {
                   <p className={styles.mutedLabel}>Consensus</p>
                   <h3>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</h3>
                 </div>
-                <span className={styles.agreementPill}>{result.summary}</span>
+                <div className={styles.resultActions}>
+                  <span className={styles.agreementPill}>{result.summary}</span>
+                  <button type="button" className={styles.regenerateButton} onClick={retryLastRequest} disabled={isLoading}>
+                    {isLoading ? "Trying again…" : "Regenerate"}
+                  </button>
+                </div>
               </div>
 
               <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>

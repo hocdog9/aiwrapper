@@ -601,6 +601,35 @@
   font-weight: 600;
 }
 
+.resultActions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.regenerateButton {
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  font: inherit;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.regenerateButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.dark .regenerateButton {
+  border-color: rgba(148, 163, 184, 0.3);
+}
+
 .metaGrid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
