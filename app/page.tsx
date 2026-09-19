@@ -30,6 +30,7 @@ type ChatTurn = {
     mimeType: string;
   };
   images?: Array<{ dataUrl: string; mimeType: string }>;
+  result?: ResponsePayload;
 };
 
 type ResponsePayload = {
@@ -59,7 +60,9 @@ type ProviderSettings = {
   model: string;
 };
 
-type AppSettings = Record<ProviderName, ProviderSettings>;
+type AppSettings = Record<ProviderName, ProviderSettings> & {
+  consensusDropdownDefaultOpen: boolean;
+};
 
 type SettingsProfile = {
   id: string;
@@ -87,6 +90,7 @@ const defaultSettings: AppSettings = {
   GPT: { enabled: true, apiKey: "", model: "gpt-4o-mini" },
   Gemini: { enabled: true, apiKey: "", model: "gemini-3.6-flash" },
   Claude: { enabled: false, apiKey: "", model: "claude-3-5-sonnet-20241022" },
+  consensusDropdownDefaultOpen: false,
 };
 
 const availableModels: Record<ProviderName, Array<{ id: string; efficiency?: "most" | "least" }>> = {
@@ -121,6 +125,120 @@ function createSettingsProfile(name: string, settings: AppSettings = defaultSett
   return { id: crypto.randomUUID(), name, settings };
 }
 
+function ConsensusDetails({
+  result,
+  onRetry,
+  disabled,
+  defaultOpen = false,
+}: {
+  result: ResponsePayload;
+  onRetry: () => void;
+  disabled: boolean;
+  defaultOpen?: boolean;
+}) {
+  const [showClaims, setShowClaims] = useState(false);
+  const [isOpen, setIsOpen] = useState(defaultOpen);
+
+  useEffect(() => {
+    setIsOpen(defaultOpen);
+  }, [defaultOpen]);
+
+  return (
+    <div className={styles.consensusDetailsWrap}>
+      <details
+        className={styles.consensusDetails}
+        open={isOpen}
+        onToggle={(event) => setIsOpen(event.currentTarget.open)}
+      >
+        <summary className={styles.consensusSummary}>
+          <span>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</span>
+          <span className={styles.consensusSummaryText}>{result.summary}</span>
+        </summary>
+
+        <div className={styles.consensusBody}>
+          <div className={styles.resultHeader}>
+            <div>
+              <p className={styles.mutedLabel}>Consensus</p>
+              <h3>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</h3>
+            </div>
+            <div className={styles.resultActions}>
+              <span className={styles.agreementPill}>{result.summary}</span>
+            </div>
+          </div>
+
+          <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
+
+          <div className={styles.metaGrid}>
+            <div className={styles.metaCard}>
+              <h4>Where they agree</h4>
+              <ul>
+                {result.agreements.length ? result.agreements.map((item) => <li key={item}><span className={styles.claimMarker}>✓</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>Not enough shared evidence.</li>}
+              </ul>
+            </div>
+            <div className={styles.metaCard}>
+              <h4>Where they differ</h4>
+              <ul>
+                {result.disagreements.length ? result.disagreements.map((item) => <li key={item}><span className={styles.claimMarker}>!</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>No material disagreements surfaced.</li>}
+              </ul>
+            </div>
+          </div>
+
+          <div className={styles.claimPanel}>
+            <div className={styles.panelHeadRow}>
+              <div>
+                <h4>Claim consensus</h4>
+                <span>{result.confidenceNote}</span>
+              </div>
+              <button
+                type="button"
+                className={styles.claimToggle}
+                aria-expanded={showClaims}
+                onClick={() => setShowClaims((current) => !current)}
+              >
+                {showClaims ? "Hide claims" : "Show claims"}
+              </button>
+            </div>
+            {showClaims && (result.claims.length ? (
+              <ul className={styles.claimList}>
+                {result.claims.map((claim) => (
+                  <li key={claim.claim} className={styles.claimItem}>
+                    <span className={styles.claimBadge}>{claim.supportCount}/{claim.totalModels}</span>
+                    <span className={styles.claimText}>{claim.claim}</span>
+                    <span className={styles.claimStatus}>{claim.status}</span>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className={styles.emptyNotes}>No discrete claim-level structure was extracted.</p>
+            ))}
+          </div>
+
+          <div className={styles.providerPanel}>
+            <h4>View individual answers</h4>
+            {result.responses.map((response) => (
+              <details key={response.provider} className={styles.providerCard}>
+                <summary>{response.provider}</summary>
+                <div className={styles.providerContent}><FormattedMarkdown>{response.content}</FormattedMarkdown></div>
+              </details>
+            ))}
+          </div>
+        </div>
+      </details>
+
+      <button
+        type="button"
+        className={styles.regenerateButton}
+        onClick={onRetry}
+        disabled={disabled}
+        aria-label="Regenerate response"
+        title="Regenerate response"
+      >
+        <span aria-hidden="true">↻</span>
+      </button>
+    </div>
+  );
+}
+
 export default function Home() {
   const [input, setInput] = useState("");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -129,7 +247,6 @@ export default function Home() {
   const [statusText, setStatusText] = useState("Ready to compare model responses.");
   const [error, setError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
-  const [showClaims, setShowClaims] = useState(false);
   const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
@@ -168,7 +285,8 @@ export default function Home() {
       }
     }
     const savedSettings = window.localStorage.getItem(SETTINGS_KEY);
-    const migratedSettings = savedSettings ? { ...defaultSettings, ...JSON.parse(savedSettings) } : defaultSettings;
+    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
+    const migratedSettings = { ...defaultSettings, ...parsedSettings, GPT: { ...defaultSettings.GPT, ...(parsedSettings.GPT ?? {}) }, Gemini: { ...defaultSettings.Gemini, ...(parsedSettings.Gemini ?? {}) }, Claude: { ...defaultSettings.Claude, ...(parsedSettings.Claude ?? {}) } } as AppSettings;
     const defaultProfile = createSettingsProfile("Default", migratedSettings);
     setProfiles([defaultProfile]);
     setActiveProfileId(defaultProfile.id);
@@ -302,9 +420,10 @@ export default function Home() {
         )
           ? currentChat
           : [...currentChat, userTurn];
-        const assistantMessage = {
-          role: "assistant" as const,
+        const assistantMessage: ChatTurn = {
+          role: "assistant",
           content: payload.consensus || "Here is the synthesized consensus.",
+          result: payload,
         };
 
         const hasAssistantMessage = chatWithUserTurn.some(
@@ -488,6 +607,17 @@ export default function Home() {
               <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
               <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
             </div>
+            <label className={styles.providerCheck}>
+              <input
+                type="checkbox"
+                checked={settings.consensusDropdownDefaultOpen}
+                onChange={(event) => setSettings((current) => ({
+                  ...current,
+                  consensusDropdownDefaultOpen: event.target.checked,
+                }))}
+              />
+              Open consensus dropdowns by default
+            </label>
             <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers." : "Keys are stored locally until you sign in."}</p>
             {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
             {userEmail ? (
@@ -598,6 +728,14 @@ export default function Home() {
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
+                {message.role === "assistant" && message.result && (
+                  <ConsensusDetails
+                    result={message.result}
+                    onRetry={retryLastRequest}
+                    disabled={isLoading}
+                    defaultOpen={settings.consensusDropdownDefaultOpen}
+                  />
+                )}
               </div>
             </div>
           ))}
@@ -622,86 +760,6 @@ export default function Home() {
             </div>
           )}
 
-          {result && (
-            <article className={styles.resultPanel}>
-              <div className={styles.resultHeader}>
-                <div>
-                  <p className={styles.mutedLabel}>Consensus</p>
-                  <h3>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</h3>
-                </div>
-                <div className={styles.resultActions}>
-                  <span className={styles.agreementPill}>{result.summary}</span>
-                </div>
-              </div>
-
-              <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
-              <button
-                type="button"
-                className={styles.regenerateButton}
-                onClick={retryLastRequest}
-                disabled={isLoading}
-                aria-label="Regenerate response"
-                title="Regenerate response"
-              >
-                <span aria-hidden="true">↻</span>
-              </button>
-
-              <div className={styles.metaGrid}>
-                <div className={styles.metaCard}>
-                  <h4>Where they agree</h4>
-                  <ul>
-                    {result.agreements.length ? result.agreements.map((item) => <li key={item}><span className={styles.claimMarker}>✓</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>Not enough shared evidence.</li>}
-                  </ul>
-                </div>
-                <div className={styles.metaCard}>
-                  <h4>Where they differ</h4>
-                  <ul>
-                    {result.disagreements.length ? result.disagreements.map((item) => <li key={item}><span className={styles.claimMarker}>!</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>No material disagreements surfaced.</li>}
-                  </ul>
-                </div>
-              </div>
-
-              <div className={styles.claimPanel}>
-                <div className={styles.panelHeadRow}>
-                  <div>
-                    <h4>Claim consensus</h4>
-                    <span>{result.confidenceNote}</span>
-                  </div>
-                  <button
-                    type="button"
-                    className={styles.claimToggle}
-                    aria-expanded={showClaims}
-                    onClick={() => setShowClaims((current) => !current)}
-                  >
-                    {showClaims ? "Hide claims" : "Show claims"}
-                  </button>
-                </div>
-                {showClaims && (result.claims.length ? (
-                  <ul className={styles.claimList}>
-                    {result.claims.map((claim) => (
-                      <li key={claim.claim} className={styles.claimItem}>
-                        <span className={styles.claimBadge}>{claim.supportCount}/{claim.totalModels}</span>
-                        <span className={styles.claimText}>{claim.claim}</span>
-                        <span className={styles.claimStatus}>{claim.status}</span>
-                      </li>
-                    ))}
-                  </ul>
-                ) : (
-                  <p className={styles.emptyNotes}>No discrete claim-level structure was extracted.</p>
-                ))}
-              </div>
-
-              <div className={styles.providerPanel}>
-                <h4>View individual answers</h4>
-                {result.responses.map((response) => (
-                  <details key={response.provider} className={styles.providerCard}>
-                    <summary>{response.provider}</summary>
-                    <div className={styles.providerContent}><FormattedMarkdown>{response.content}</FormattedMarkdown></div>
-                  </details>
-                ))}
-              </div>
-            </article>
-          )}
         </div>
 
         <form className={styles.composer} onSubmit={handleSubmit}>

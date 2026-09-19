@@ -442,6 +442,59 @@
   color: inherit;
 }
 
+.consensusDetailsWrap {
+  margin-top: 14px;
+  display: grid;
+  gap: 12px;
+}
+
+.consensusDetails {
+  border: 1px solid #d1d5db;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.5);
+  overflow: hidden;
+}
+
+.dark .consensusDetails {
+  border-color: rgba(148, 163, 184, 0.2);
+  background: rgba(17, 24, 39, 0.7);
+}
+
+.consensusSummary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+  padding: 10px 12px;
+  font-weight: 600;
+}
+
+.consensusSummary::-webkit-details-marker {
+  display: none;
+}
+
+.consensusSummaryText {
+  color: #6b7280;
+  font-size: 0.8rem;
+  font-weight: 500;
+  text-align: right;
+}
+
+.dark .consensusSummaryText {
+  color: #cbd5e1;
+}
+
+.consensusBody {
+  border-top: 1px solid #e5e7eb;
+  padding: 16px 14px 14px;
+}
+
+.dark .consensusBody {
+  border-top-color: rgba(148, 163, 184, 0.2);
+}
+
 .messageContent :global(.katex-display),
 .providerContent :global(.katex-display),
 .resultBody :global(.katex-display) {
