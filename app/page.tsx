@@ -125,6 +125,21 @@ function createSettingsProfile(name: string, settings: AppSettings = defaultSett
   return { id: crypto.randomUUID(), name, settings };
 }
 
+function hydrateSessionResults(session: ChatSession): ChatSession {
+  if (!session.result) return session;
+
+  const nextResult = session.result;
+
+  return {
+    ...session,
+    chat: session.chat.map((message) => (
+      message.role === "assistant" && !message.result
+        ? { ...message, result: nextResult }
+        : message
+    )),
+  };
+}
+
 function ConsensusDetails({
   result,
   onRetry,
@@ -361,8 +376,9 @@ export default function Home() {
       try {
         const parsed = JSON.parse(savedHistory) as ChatSession[];
         if (parsed.length) {
-          setSessions(parsed);
-          setActiveChatId(parsed[0].id);
+          const hydrated = parsed.map(hydrateSessionResults);
+          setSessions(hydrated);
+          setActiveChatId(hydrated[0].id);
           return;
         }
       } catch {
