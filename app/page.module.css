@@ -686,6 +686,11 @@
   padding: 12px 14px;
 }
 
+.errorMessage {
+  display: block;
+  white-space: pre-line;
+}
+
 .retryButton {
   display: block;
   margin-top: 10px;

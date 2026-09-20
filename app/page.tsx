@@ -486,7 +486,10 @@ export default function Home() {
       const payload = (await response.json()) as ResponsePayload & { error?: string };
 
       if (!response.ok) {
-        throw new Error(payload.error ?? "Unable to fetch consensus.");
+        const providerErrors = payload.errors?.length
+          ? `\n${payload.errors.map((item) => `${item.provider}: ${item.message}`).join("\n")}`
+          : "";
+        throw new Error(`${payload.error ?? "Unable to fetch consensus."}${providerErrors}`);
       }
 
       setStatusText("Consensus ready.");
@@ -859,7 +862,7 @@ export default function Home() {
 
           {error && (
             <div className={styles.errorCard}>
-              <span>{error}</span>
+              <span className={styles.errorMessage}>{error}</span>
               {lastRequestRef.current && (
                 <button type="button" className={styles.retryButton} onClick={retryLastRequest} disabled={isLoading}>
                   Try again
