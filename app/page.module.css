@@ -135,12 +135,58 @@
 }
 
 .settingsPanel {
+  position: relative;
+  width: min(620px, calc(100vw - 40px));
+  max-height: min(820px, calc(100vh - 40px));
   display: grid;
   gap: 10px;
-  padding: 14px;
+  overflow-y: auto;
+  padding: 24px;
   border: 1px solid #e5e7eb;
-  border-radius: 16px;
+  border-radius: 20px;
   background: white;
+  box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+}
+
+.settingsBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(15, 23, 42, 0.48);
+}
+
+.settingsHeader {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.settingsHeader h2 {
+  margin: 0 0 4px;
+  font-size: 1.5rem;
+}
+
+.settingsCloseButton {
+  width: 34px;
+  height: 34px;
+  border: 1px solid #d1d5db;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font-size: 1.4rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.settingsContent {
+  display: grid;
+  gap: 10px;
 }
 
 .dark .settingsPanel,
@@ -148,6 +194,14 @@
   background: #111827;
   border-color: rgba(148, 163, 184, 0.2);
   color: #e5e7eb;
+}
+
+.dark .settingsHeader {
+  border-bottom-color: rgba(148, 163, 184, 0.2);
+}
+
+.dark .settingsCloseButton {
+  border-color: rgba(148, 163, 184, 0.3);
 }
 
 .settingsNote {

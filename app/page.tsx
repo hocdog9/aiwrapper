@@ -612,10 +612,21 @@ export default function Home() {
           </div>
         </div>
         {showSettings && (
-          <div className={styles.settingsPanel}>
-            <div className={styles.historyHeader}>
-              <p className={styles.mutedLabel}>Model settings</p>
-            </div>
+          <div className={styles.settingsBackdrop} onMouseDown={() => setShowSettings(false)}>
+            <div className={styles.settingsPanel} role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
+              <div className={styles.settingsHeader}>
+                <div>
+                  <p className={styles.mutedLabel}>Settings</p>
+                  <h2 id="settings-title">Model settings</h2>
+                </div>
+                <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">
+                  ×
+                </button>
+              </div>
+              <div className={styles.historyHeader}>
+                <p className={styles.mutedLabel}>Profile and providers</p>
+              </div>
+              <div className={styles.settingsContent}>
             <select
               className={styles.settingsInput}
               value={activeProfileId}
@@ -709,6 +720,8 @@ export default function Home() {
                 />
               </div>
             ))}
+              </div>
+            </div>
           </div>
         )}
         <div className={styles.sidebarCard}>
