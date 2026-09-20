@@ -280,6 +280,7 @@ export default function Home() {
   const [profileName, setProfileName] = useState("Default");
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [authChecked, setAuthChecked] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [authMode, setAuthMode] = useState<"login" | "signup">("login");
@@ -293,56 +294,53 @@ export default function Home() {
   const result = activeSession?.result ?? null;
 
   useEffect(() => {
-    const savedProfiles = window.localStorage.getItem(PROFILES_KEY);
-    if (savedProfiles) {
-      try {
-        const parsed = JSON.parse(savedProfiles) as SettingsProfile[];
-        if (parsed.length) {
-          const normalizedProfiles = parsed.map((profile) => ({
-            ...profile,
-            settings: normalizeSettings(profile.settings),
-          }));
-          const profile = normalizedProfiles[0];
-          setProfiles(normalizedProfiles);
-          setActiveProfileId(profile.id);
-          setProfileName(profile.name);
-          setSettings(profile.settings);
-          setProfilesLoaded(true);
-          return;
-        }
-      } catch {
-        window.localStorage.removeItem(PROFILES_KEY);
-      }
-    }
-    const savedSettings = window.localStorage.getItem(SETTINGS_KEY);
-    const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
-    const migratedSettings = normalizeSettings(parsedSettings);
-    const defaultProfile = createSettingsProfile("Default", migratedSettings);
+    if (!authChecked || userEmail) return;
+    window.localStorage.removeItem(PROFILES_KEY);
+    window.localStorage.removeItem(SETTINGS_KEY);
+    const defaultProfile = createSettingsProfile("Default");
     setProfiles([defaultProfile]);
     setActiveProfileId(defaultProfile.id);
     setProfileName(defaultProfile.name);
     setSettings(defaultProfile.settings);
     setProfilesLoaded(true);
-  }, []);
+  }, [authChecked, userEmail]);
 
   useEffect(() => {
     let active = true;
     async function loadAccount() {
       const { data } = await supabase.auth.getUser();
-      if (!active || !data.user) return;
+      if (!active) return;
+      if (!data.user) {
+        setUserEmail("");
+        setAuthChecked(true);
+        return;
+      }
       setUserEmail(data.user.email ?? "");
       const { data: remoteProfiles, error: remoteError } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
       if (remoteError) {
         setProfileSyncError(`Profile storage error: ${remoteError.message}`);
+        setProfilesLoaded(true);
+        setAuthChecked(true);
         return;
       }
       if (remoteProfiles?.length) {
-        const nextProfiles = remoteProfiles as SettingsProfile[];
+        const nextProfiles = (remoteProfiles as SettingsProfile[]).map((profile) => ({
+          ...profile,
+          settings: normalizeSettings(profile.settings),
+        }));
         setProfiles(nextProfiles);
         setActiveProfileId(nextProfiles[0].id);
         setProfileName(nextProfiles[0].name);
         setSettings(nextProfiles[0].settings);
+      } else {
+        const defaultProfile = createSettingsProfile("Default");
+        setProfiles([defaultProfile]);
+        setActiveProfileId(defaultProfile.id);
+        setProfileName(defaultProfile.name);
+        setSettings(defaultProfile.settings);
       }
+      setProfilesLoaded(true);
+      setAuthChecked(true);
     }
     loadAccount();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
@@ -351,6 +349,7 @@ export default function Home() {
         loadAccount();
       } else {
         setUserEmail("");
+        setAuthChecked(true);
       }
     });
     return () => {
@@ -360,7 +359,12 @@ export default function Home() {
   }, []);
 
   useEffect(() => {
-    if (!profilesLoaded) return;
+    if (!profilesLoaded || !authChecked) return;
+    if (!userEmail) {
+      window.localStorage.removeItem(PROFILES_KEY);
+      window.localStorage.removeItem(SETTINGS_KEY);
+      return;
+    }
     const updatedProfiles = profiles.map((profile) => profile.id === activeProfileId
       ? { ...profile, name: profileName, settings }
       : profile);
@@ -383,9 +387,18 @@ export default function Home() {
         }
       });
     }
-  }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail]);
+  }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail, authChecked]);
 
   useEffect(() => {
+    if (!authChecked) return;
+    if (!userEmail) {
+      window.localStorage.removeItem(CHAT_HISTORY_KEY);
+      const firstSession = createChatSession();
+      setSessions([firstSession]);
+      setActiveChatId(firstSession.id);
+      return;
+    }
+
     const savedHistory = window.localStorage.getItem(CHAT_HISTORY_KEY);
     if (savedHistory) {
       try {
@@ -403,13 +416,13 @@ export default function Home() {
     const firstSession = createChatSession();
     setSessions([firstSession]);
     setActiveChatId(firstSession.id);
-  }, []);
+  }, [authChecked, userEmail]);
 
   useEffect(() => {
-    if (sessions.length) {
+    if (authChecked && userEmail && sessions.length) {
       window.localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions));
     }
-  }, [sessions]);
+  }, [authChecked, sessions, userEmail]);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
@@ -573,6 +586,10 @@ export default function Home() {
     setProfileName(signedOutProfile.name);
     setSettings(signedOutProfile.settings);
     setProfileSyncError("");
+    window.localStorage.removeItem(CHAT_HISTORY_KEY);
+    const signedOutChat = createChatSession();
+    setSessions([signedOutChat]);
+    setActiveChatId(signedOutChat.id);
     setUserEmail("");
   }
 
