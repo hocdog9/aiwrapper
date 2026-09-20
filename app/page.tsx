@@ -125,6 +125,17 @@ function createSettingsProfile(name: string, settings: AppSettings = defaultSett
   return { id: crypto.randomUUID(), name, settings };
 }
 
+function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+  return {
+    ...defaultSettings,
+    ...settings,
+    GPT: { ...defaultSettings.GPT, ...(settings.GPT ?? {}) },
+    Gemini: { ...defaultSettings.Gemini, ...(settings.Gemini ?? {}) },
+    Claude: { ...defaultSettings.Claude, ...(settings.Claude ?? {}) },
+    consensusDropdownDefaultOpen: settings.consensusDropdownDefaultOpen === true,
+  };
+}
+
 function hydrateSessionResults(session: ChatSession): ChatSession {
   if (!session.result) return session;
 
@@ -287,8 +298,12 @@ export default function Home() {
       try {
         const parsed = JSON.parse(savedProfiles) as SettingsProfile[];
         if (parsed.length) {
-          const profile = parsed[0];
-          setProfiles(parsed);
+          const normalizedProfiles = parsed.map((profile) => ({
+            ...profile,
+            settings: normalizeSettings(profile.settings),
+          }));
+          const profile = normalizedProfiles[0];
+          setProfiles(normalizedProfiles);
           setActiveProfileId(profile.id);
           setProfileName(profile.name);
           setSettings(profile.settings);
@@ -301,7 +316,7 @@ export default function Home() {
     }
     const savedSettings = window.localStorage.getItem(SETTINGS_KEY);
     const parsedSettings = savedSettings ? JSON.parse(savedSettings) : {};
-    const migratedSettings = { ...defaultSettings, ...parsedSettings, GPT: { ...defaultSettings.GPT, ...(parsedSettings.GPT ?? {}) }, Gemini: { ...defaultSettings.Gemini, ...(parsedSettings.Gemini ?? {}) }, Claude: { ...defaultSettings.Claude, ...(parsedSettings.Claude ?? {}) } } as AppSettings;
+    const migratedSettings = normalizeSettings(parsedSettings);
     const defaultProfile = createSettingsProfile("Default", migratedSettings);
     setProfiles([defaultProfile]);
     setActiveProfileId(defaultProfile.id);
