@@ -74,7 +74,7 @@ async function callOpenAI(prompt: string, images: ImageAttachment[] = [], apiKey
   return response.output_text || "";
 }
 
-async function callGemini(prompt: string, images: ImageAttachment[] = [], apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || "gemini-3.6-flash") {
+async function callGemini(prompt: string, images: ImageAttachment[] = [], apiKey = process.env.GEMINI_API_KEY, model = process.env.GEMINI_MODEL || "gemini-2.5-flash") {
   if (!apiKey) return null;
 
   const client = new GoogleGenAI({ apiKey });
@@ -154,7 +154,7 @@ export async function POST(request: NextRequest) {
     };
     const tasks = [
       ...configured("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(prompt, latestImages, key, model)),
-      ...configured("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(prompt, latestImages, key, model)),
+      ...configured("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-2.5-flash", (key, model) => callGemini(prompt, latestImages, key, model)),
       ...configured("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(prompt, latestImages, key, model)),
     ];
 
@@ -217,7 +217,7 @@ export async function POST(request: NextRequest) {
       return () => runner(apiKey, choice?.model?.trim() || envModel);
     };
     const synthesisRunners = [
-      synthesisConfig("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-3.6-flash", (key, model) => callGemini(consolidationPrompt, [], key, model)),
+      synthesisConfig("Gemini", process.env.GEMINI_API_KEY, process.env.GEMINI_MODEL || "gemini-2.5-flash", (key, model) => callGemini(consolidationPrompt, [], key, model)),
       synthesisConfig("GPT", process.env.OPENAI_API_KEY, process.env.OPENAI_MODEL || "gpt-4o-mini", (key, model) => callOpenAI(consolidationPrompt, [], key, model)),
       synthesisConfig("Claude", process.env.ANTHROPIC_API_KEY, process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022", (key, model) => callClaude(consolidationPrompt, [], key, model)),
     ].filter((runner): runner is () => Promise<string | null> => Boolean(runner));

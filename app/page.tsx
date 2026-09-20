@@ -88,7 +88,7 @@ function FormattedMarkdown({ children }: { children: string }) {
 
 const defaultSettings: AppSettings = {
   GPT: { enabled: true, apiKey: "", model: "gpt-4o-mini" },
-  Gemini: { enabled: true, apiKey: "", model: "gemini-3.6-flash" },
+  Gemini: { enabled: true, apiKey: "", model: "gemini-2.5-flash" },
   Claude: { enabled: false, apiKey: "", model: "claude-3-5-sonnet-20241022" },
   consensusDropdownDefaultOpen: false,
 };
@@ -101,8 +101,7 @@ const availableModels: Record<ProviderName, Array<{ id: string; efficiency?: "mo
     { id: "gpt-4.1", efficiency: "least" },
   ],
   Gemini: [
-    { id: "gemini-3.6-flash", efficiency: "most" },
-    { id: "gemini-2.5-flash" },
+    { id: "gemini-2.5-flash", efficiency: "most" },
     { id: "gemini-2.5-pro", efficiency: "least" },
   ],
   Claude: [
@@ -130,7 +129,13 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
     ...defaultSettings,
     ...settings,
     GPT: { ...defaultSettings.GPT, ...(settings.GPT ?? {}) },
-    Gemini: { ...defaultSettings.Gemini, ...(settings.Gemini ?? {}) },
+    Gemini: {
+      ...defaultSettings.Gemini,
+      ...(settings.Gemini ?? {}),
+      model: settings.Gemini?.model === "gemini-3.6-flash"
+        ? defaultSettings.Gemini.model
+        : settings.Gemini?.model || defaultSettings.Gemini.model,
+    },
     Claude: { ...defaultSettings.Claude, ...(settings.Claude ?? {}) },
     consensusDropdownDefaultOpen: settings.consensusDropdownDefaultOpen === true,
   };
