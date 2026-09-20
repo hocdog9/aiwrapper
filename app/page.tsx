@@ -665,7 +665,7 @@ export default function Home() {
             {userEmail ? (
               <div className={styles.accountRow}>
                 <span>{userEmail}</span>
-                <button type="button" className={styles.profileButton} onClick={signOut}>Sign out</button>
+                <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
               </div>
             ) : (
               <form className={styles.authForm} onSubmit={handleAuth}>
