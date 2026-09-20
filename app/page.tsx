@@ -280,6 +280,7 @@ export default function Home() {
   const [profileName, setProfileName] = useState("Default");
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [userEmail, setUserEmail] = useState("");
+  const [userId, setUserId] = useState("");
   const [authChecked, setAuthChecked] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
@@ -312,10 +313,12 @@ export default function Home() {
       if (!active) return;
       if (!data.user) {
         setUserEmail("");
+        setUserId("");
         setAuthChecked(true);
         return;
       }
       setUserEmail(data.user.email ?? "");
+      setUserId(data.user.id);
       const { data: remoteProfiles, error: remoteError } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
       if (remoteError) {
         setProfileSyncError(`Profile storage error: ${remoteError.message}`);
@@ -339,16 +342,30 @@ export default function Home() {
         setProfileName(defaultProfile.name);
         setSettings(defaultProfile.settings);
       }
+      const { data: remoteChats, error: chatError } = await supabase
+        .from("chat_sessions")
+        .select("id, title, chat, result")
+        .order("updated_at", { ascending: false });
+      if (chatError) {
+        setProfileSyncError(`Chat history error: ${chatError.message}`);
+      } else if (remoteChats?.length) {
+        const nextSessions = remoteChats as ChatSession[];
+        setSessions(nextSessions.map(hydrateSessionResults));
+        setActiveChatId(nextSessions[0].id);
+      }
       setProfilesLoaded(true);
       setAuthChecked(true);
     }
     loadAccount();
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
+        setAuthChecked(false);
         setUserEmail(session.user.email ?? "");
+        setUserId(session.user.id);
         loadAccount();
       } else {
         setUserEmail("");
+        setUserId("");
         setAuthChecked(true);
       }
     });
@@ -421,8 +438,20 @@ export default function Home() {
   useEffect(() => {
     if (authChecked && userEmail && sessions.length) {
       window.localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions));
+      if (userId) {
+        supabase.from("chat_sessions").upsert(sessions.map((session) => ({
+          id: session.id,
+          user_id: userId,
+          title: session.title,
+          chat: session.chat,
+          result: session.result,
+          updated_at: new Date().toISOString(),
+        }))).then(({ error: saveError }) => {
+          if (saveError) setProfileSyncError(`Chat history save error: ${saveError.message}`);
+        });
+      }
     }
-  }, [authChecked, sessions, userEmail]);
+  }, [authChecked, sessions, userEmail, userId]);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
@@ -606,6 +635,11 @@ export default function Home() {
       if (session.id === activeChatId) {
         setActiveChatId(remaining[0].id);
       }
+    }
+    if (userId) {
+      supabase.from("chat_sessions").delete().eq("id", session.id).eq("user_id", userId).then(({ error: deleteError }) => {
+        if (deleteError) setProfileSyncError(`Chat delete error: ${deleteError.message}`);
+      });
     }
     setInput("");
                   setPastedImages([]);
