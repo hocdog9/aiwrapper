@@ -565,6 +565,14 @@ export default function Home() {
 
   async function signOut() {
     await supabase.auth.signOut();
+    const signedOutProfile = createSettingsProfile("Default");
+    window.localStorage.removeItem(PROFILES_KEY);
+    window.localStorage.removeItem(SETTINGS_KEY);
+    setProfiles([signedOutProfile]);
+    setActiveProfileId(signedOutProfile.id);
+    setProfileName(signedOutProfile.name);
+    setSettings(signedOutProfile.settings);
+    setProfileSyncError("");
     setUserEmail("");
   }
 
