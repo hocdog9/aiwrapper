@@ -53,6 +53,7 @@ type ChatSession = {
 };
 
 type ProviderName = "GPT" | "Gemini" | "Claude";
+type ModelCatalog = Record<ProviderName, string[]>;
 
 type ProviderSettings = {
   enabled: boolean;
@@ -93,22 +94,10 @@ const defaultSettings: AppSettings = {
   consensusDropdownDefaultOpen: false,
 };
 
-const availableModels: Record<ProviderName, Array<{ id: string; efficiency?: "most" | "least" }>> = {
-  GPT: [
-    { id: "gpt-4o-mini", efficiency: "most" },
-    { id: "gpt-4o" },
-    { id: "gpt-4.1-mini" },
-    { id: "gpt-4.1", efficiency: "least" },
-  ],
-  Gemini: [
-    { id: "gemini-2.5-flash", efficiency: "most" },
-    { id: "gemini-2.5-pro", efficiency: "least" },
-  ],
-  Claude: [
-    { id: "claude-3-5-haiku-20241022", efficiency: "most" },
-    { id: "claude-3-5-sonnet-20241022" },
-    { id: "claude-3-opus-20240229", efficiency: "least" },
-  ],
+const fallbackModels: ModelCatalog = {
+  GPT: ["gpt-4o-mini"],
+  Gemini: ["gemini-2.5-flash"],
+  Claude: ["claude-3-5-sonnet-20241022"],
 };
 
 function createChatSession(): ChatSession {
@@ -132,7 +121,7 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
     Gemini: {
       ...defaultSettings.Gemini,
       ...(settings.Gemini ?? {}),
-      model: settings.Gemini?.model === "gemini-3.6-flash"
+      model: settings.Gemini?.model === "gemini-3.6-flash" || settings.Gemini?.model === "gemini-2.5-pro"
         ? defaultSettings.Gemini.model
         : settings.Gemini?.model || defaultSettings.Gemini.model,
     },
@@ -280,6 +269,8 @@ export default function Home() {
   const [isDark, setIsDark] = useState(true);
   const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModels);
+  const [modelDiscoveryErrors, setModelDiscoveryErrors] = useState<Partial<Record<ProviderName, string>>>({});
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [profileName, setProfileName] = useState("Default");
@@ -474,6 +465,66 @@ export default function Home() {
       viewportRef.current.scrollTop = viewportRef.current.scrollHeight;
     }
   }, [chat, result, isLoading]);
+
+  useEffect(() => {
+    if (!showSettings) return;
+
+    const controller = new AbortController();
+    const timer = window.setTimeout(async () => {
+      setModelDiscoveryErrors({});
+      try {
+        const response = await fetch("/api/models", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
+          body: JSON.stringify({
+            settings: {
+              GPT: { apiKey: settings.GPT.apiKey },
+              Gemini: { apiKey: settings.Gemini.apiKey },
+              Claude: { apiKey: settings.Claude.apiKey },
+            },
+          }),
+        });
+        const payload = await response.json() as {
+          models?: ModelCatalog;
+          loaded?: Record<ProviderName, boolean>;
+          errors?: Partial<Record<ProviderName, string>>;
+        };
+        if (controller.signal.aborted) return;
+        if (payload.models) {
+          setModelCatalog((current) => ({
+            GPT: payload.models?.GPT.length ? payload.models.GPT : current.GPT,
+            Gemini: payload.models?.Gemini.length ? payload.models.Gemini : current.Gemini,
+            Claude: payload.models?.Claude.length ? payload.models.Claude : current.Claude,
+          }));
+          setSettings((current) => {
+            const nextSettings = { ...current };
+            for (const provider of ["GPT", "Gemini", "Claude"] as ProviderName[]) {
+              const available = payload.models?.[provider] ?? [];
+              if (!payload.loaded?.[provider] || !available.length || available.includes(current[provider].model)) continue;
+              const preferred = available.find((model) => /flash|mini|haiku/i.test(model)) ?? available[0];
+              nextSettings[provider] = { ...current[provider], model: preferred };
+            }
+            return nextSettings;
+          });
+        }
+        setModelDiscoveryErrors(payload.errors ?? {});
+      } catch (discoveryError) {
+        if (!controller.signal.aborted) {
+          setModelDiscoveryErrors({
+            GPT: "Could not refresh models. Check your connection and provider keys.",
+            Gemini: "Could not refresh models. Check your connection and provider keys.",
+            Claude: "Could not refresh models. Check your connection and provider keys.",
+          });
+        }
+      }
+    }, 300);
+
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [showSettings, settings.GPT.apiKey, settings.Gemini.apiKey, settings.Claude.apiKey]);
 
   async function runRequest(requestMessages: ChatTurn[], userTurn: ChatTurn, sessionId: string) {
     try {
@@ -746,7 +797,9 @@ export default function Home() {
                 </button>
               </form>
             )}
-            {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => (
+            {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
+              const modelIds = modelCatalog[provider];
+              return (
               <div key={provider} className={styles.providerSetting}>
                 <label className={styles.providerCheck}>
                   <input
@@ -768,12 +821,9 @@ export default function Home() {
                   }))}
                   aria-label={`${provider} model`}
                 >
-                  {availableModels[provider].map((model) => (
-                    <option key={model.id} value={model.id}>
-                      {model.id}{model.efficiency === "most" ? " - Most efficient" : model.efficiency === "least" ? " - Least efficient" : ""}
-                    </option>
-                  ))}
+                  {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
                 </select>
+                {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
                 <input
                   className={styles.settingsInput}
                   type="password"
@@ -786,7 +836,8 @@ export default function Home() {
                   aria-label={`${provider} API key`}
                 />
               </div>
-            ))}
+              );
+            })}
               </div>
             </div>
           </div>
