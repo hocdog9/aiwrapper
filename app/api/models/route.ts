@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
         const client = new GoogleGenAI({ apiKey: apiKeys.Gemini });
         for await (const model of await client.models.list()) {
           const modelId = model.name?.replace(/^models\//, "");
-          if (modelId && modelId !== "gemini-2.5-pro" && model.supportedActions?.includes("generateContent")) {
+          if (modelId && !/^gemini-2\.5-/i.test(modelId) && model.supportedActions?.includes("generateContent")) {
             models.Gemini.push(modelId);
           }
         }
