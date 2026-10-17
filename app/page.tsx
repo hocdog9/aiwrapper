@@ -157,6 +157,12 @@ function getUniqueProfileName(name: string, profiles: SettingsProfile[]): string
   return uniqueName;
 }
 
+function getEnabledProviderLabel(settings: AppSettings): string {
+  const providers = (["GPT", "Gemini", "Claude"] as ProviderName[])
+    .filter((provider) => settings[provider].enabled);
+  return providers.length ? providers.join(", ") : "selected models";
+}
+
 function hydrateSessionResults(session: ChatSession): ChatSession {
   if (!session.result) return session;
 
@@ -622,7 +628,7 @@ export default function Home() {
     setPastedImages([]);
     setError(null);
     setIsLoading(true);
-    setStatusText("Asking GPT…");
+    setStatusText(`Asking ${getEnabledProviderLabel(settings)}…`);
     await runRequest(requestMessages, userTurn, activeSession.id);
   }
 
@@ -990,7 +996,7 @@ export default function Home() {
             <div className={styles.loadingRow}>
               <div className={styles.loadingBubble}>
                 <span className={styles.messageRole}>Working</span>
-                <div className={styles.loader}>Asking GPT, Gemini, and Claude…</div>
+                <div className={styles.loader}>Asking {getEnabledProviderLabel(settings)}…</div>
               </div>
             </div>
           )}
