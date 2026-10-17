@@ -130,6 +130,33 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
   };
 }
 
+function ensureUniqueProfileNames(profiles: SettingsProfile[]): SettingsProfile[] {
+  const usedNames = new Set<string>();
+  return profiles.map((profile) => {
+    const baseName = profile.name.trim() || "Profile";
+    let name = baseName;
+    let suffix = 2;
+    while (usedNames.has(name.toLocaleLowerCase())) {
+      name = `${baseName} (${suffix})`;
+      suffix += 1;
+    }
+    usedNames.add(name.toLocaleLowerCase());
+    return { ...profile, name };
+  });
+}
+
+function getUniqueProfileName(name: string, profiles: SettingsProfile[]): string {
+  const baseName = name.trim() || "New profile";
+  const usedNames = new Set(profiles.map((profile) => profile.name.trim().toLocaleLowerCase()));
+  let uniqueName = baseName;
+  let suffix = 2;
+  while (usedNames.has(uniqueName.toLocaleLowerCase())) {
+    uniqueName = `${baseName} (${suffix})`;
+    suffix += 1;
+  }
+  return uniqueName;
+}
+
 function hydrateSessionResults(session: ChatSession): ChatSession {
   if (!session.result) return session;
 
@@ -274,6 +301,8 @@ export default function Home() {
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [profileName, setProfileName] = useState("Default");
+  const [profileNameError, setProfileNameError] = useState("");
+  const [keySaveStatus, setKeySaveStatus] = useState<Partial<Record<ProviderName, string>>>({});
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
@@ -323,10 +352,10 @@ export default function Home() {
         return;
       }
       if (remoteProfiles?.length) {
-        const nextProfiles = (remoteProfiles as SettingsProfile[]).map((profile) => ({
+        const nextProfiles = ensureUniqueProfileNames((remoteProfiles as SettingsProfile[]).map((profile) => ({
           ...profile,
           settings: normalizeSettings(profile.settings),
-        }));
+        })));
         setProfiles(nextProfiles);
         setActiveProfileId(nextProfiles[0].id);
         setProfileName(nextProfiles[0].name);
@@ -625,13 +654,41 @@ export default function Home() {
     setActiveProfileId(profile.id);
     setProfileName(profile.name);
     setSettings(profile.settings);
+    setProfileNameError("");
+    setKeySaveStatus({});
   }
 
   function saveNewProfile() {
-    const name = profileName.trim() || "New profile";
+    const name = getUniqueProfileName(profileName, profiles);
     const profile = createSettingsProfile(name, settings);
-    setProfiles((current) => [...current, profile]);
+    setProfiles((current) => ensureUniqueProfileNames([...current, profile]));
     setActiveProfileId(profile.id);
+    setProfileName(name);
+    setProfileNameError("");
+  }
+
+  async function saveProviderKey(provider: ProviderName) {
+    if (!userId || !activeProfileId) {
+      setKeySaveStatus((current) => ({ ...current, [provider]: "Sign in to save keys to your profile." }));
+      return;
+    }
+
+    const name = profileName.trim() || "Default";
+    const { error: saveError } = await supabase.from("api_profiles").upsert({
+      id: activeProfileId,
+      user_id: userId,
+      name,
+      settings,
+    });
+    if (saveError) {
+      setKeySaveStatus((current) => ({ ...current, [provider]: `Save failed: ${saveError.message}` }));
+      return;
+    }
+
+    setProfiles((current) => ensureUniqueProfileNames(current.map((profile) => (
+      profile.id === activeProfileId ? { ...profile, name, settings } : profile
+    ))));
+    setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key saved.` }));
   }
 
   function deleteProfile() {
@@ -759,10 +816,23 @@ export default function Home() {
             <input
               className={styles.settingsInput}
               value={profileName}
-              onChange={(event) => setProfileName(event.target.value)}
+              onChange={(event) => {
+                const nextName = event.target.value;
+                const isDuplicate = profiles.some((profile) => (
+                  profile.id !== activeProfileId
+                  && profile.name.trim().toLocaleLowerCase() === nextName.trim().toLocaleLowerCase()
+                ));
+                if (isDuplicate) {
+                  setProfileNameError("A profile with that name already exists.");
+                  return;
+                }
+                setProfileNameError("");
+                setProfileName(nextName);
+              }}
               placeholder="Profile name"
               aria-label="Profile name"
             />
+            {profileNameError && <p className={styles.authError}>{profileNameError}</p>}
             <div className={styles.profileActions}>
               <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
               <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
@@ -824,17 +894,31 @@ export default function Home() {
                   {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
                 </select>
                 {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
-                <input
-                  className={styles.settingsInput}
-                  type="password"
-                  value={settings[provider].apiKey}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    [provider]: { ...current[provider], apiKey: event.target.value },
-                  }))}
-                  placeholder="API key (optional if in .env.local)"
-                  aria-label={`${provider} API key`}
-                />
+                <div className={styles.providerKeySaveRow}>
+                  <input
+                    className={styles.settingsInput}
+                    type="password"
+                    value={settings[provider].apiKey}
+                    onChange={(event) => {
+                      setKeySaveStatus((current) => ({ ...current, [provider]: "" }));
+                      setSettings((current) => ({
+                        ...current,
+                        [provider]: { ...current[provider], apiKey: event.target.value },
+                      }));
+                    }}
+                    placeholder="API key (optional if in .env.local)"
+                    aria-label={`${provider} API key`}
+                  />
+                  <button
+                    type="button"
+                    className={styles.providerKeySaveButton}
+                    onClick={() => saveProviderKey(provider)}
+                    disabled={!userId}
+                  >
+                    Save key
+                  </button>
+                </div>
+                {keySaveStatus[provider] && <p className={styles.providerKeySaveStatus}>{keySaveStatus[provider]}</p>}
               </div>
               );
             })}
