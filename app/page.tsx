@@ -43,6 +43,8 @@ type ResponsePayload = {
   claims: ConsensusClaim[];
   responses: ModelResponse[];
   errors: { provider: string; message: string }[];
+  requestId: string;
+  usage: { creditCharged: number; creditsRemaining: number };
 };
 
 type ChatSession = {
@@ -54,10 +56,21 @@ type ChatSession = {
 
 type ProviderName = "GPT" | "Gemini" | "Claude";
 type ModelCatalog = Record<ProviderName, string[]>;
+type ProviderKeyDrafts = Record<ProviderName, string>;
+type ProviderKeyStatus = Record<ProviderName, { configured: boolean; masked: string | null; validatedAt: string | null }>;
+type BillingMode = "managed" | "byok";
+type UsageSummary = {
+  plan: string;
+  billingMode: BillingMode;
+  subscriptionStatus: string;
+  periodEnd: string;
+  includedCredits: number;
+  creditsUsed: number;
+  creditsRemaining: number;
+};
 
 type ProviderSettings = {
   enabled: boolean;
-  apiKey: string;
   model: string;
 };
 
@@ -74,6 +87,17 @@ type SettingsProfile = {
 const CHAT_HISTORY_KEY = "consensus-ai-chat-history";
 const SETTINGS_KEY = "consensus-ai-settings";
 const PROFILES_KEY = "consensus-ai-profiles";
+const EMPTY_CHAT: ChatTurn[] = [];
+
+async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const { data } = await supabase.auth.getSession();
+  const accessToken = data.session?.access_token;
+  if (!accessToken) throw new Error("Sign in to continue.");
+  const headers = new Headers(init.headers);
+  headers.set("Authorization", `Bearer ${accessToken}`);
+  if (init.body && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  return fetch(path, { ...init, headers });
+}
 
 function FormattedMarkdown({ children }: { children: string }) {
   const normalized = children
@@ -88,9 +112,9 @@ function FormattedMarkdown({ children }: { children: string }) {
 }
 
 const defaultSettings: AppSettings = {
-  GPT: { enabled: true, apiKey: "", model: "gpt-4o-mini" },
-  Gemini: { enabled: true, apiKey: "", model: "gemini-3.8-flash" },
-  Claude: { enabled: false, apiKey: "", model: "claude-3-5-sonnet-20241022" },
+  GPT: { enabled: true, model: "gpt-4o-mini" },
+  Gemini: { enabled: true, model: "gemini-3.8-flash" },
+  Claude: { enabled: false, model: "claude-3-5-sonnet-20241022" },
   consensusDropdownDefaultOpen: false,
 };
 
@@ -99,6 +123,7 @@ const fallbackModels: ModelCatalog = {
   Gemini: ["gemini-3.8-flash"],
   Claude: ["claude-3-5-sonnet-20241022"],
 };
+const emptyProviderKeyDrafts: ProviderKeyDrafts = { GPT: "", Gemini: "", Claude: "" };
 
 function createChatSession(): ChatSession {
   return {
@@ -114,18 +139,22 @@ function createSettingsProfile(name: string, settings: AppSettings = defaultSett
 }
 
 function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
+  const stored = settings as Partial<AppSettings> & Record<ProviderName, { enabled?: boolean; model?: string; apiKey?: string }>;
   return {
-    ...defaultSettings,
-    ...settings,
-    GPT: { ...defaultSettings.GPT, ...(settings.GPT ?? {}) },
-    Gemini: {
-      ...defaultSettings.Gemini,
-      ...(settings.Gemini ?? {}),
-      model: ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-pro"].includes(settings.Gemini?.model ?? "")
-        ? defaultSettings.Gemini.model
-        : settings.Gemini?.model || defaultSettings.Gemini.model,
+    GPT: {
+      enabled: stored.GPT?.enabled !== false,
+      model: stored.GPT?.model || defaultSettings.GPT.model,
     },
-    Claude: { ...defaultSettings.Claude, ...(settings.Claude ?? {}) },
+    Gemini: {
+      enabled: stored.Gemini?.enabled !== false,
+      model: ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-pro"].includes(stored.Gemini?.model ?? "")
+        ? defaultSettings.Gemini.model
+        : stored.Gemini?.model || defaultSettings.Gemini.model,
+    },
+    Claude: {
+      enabled: stored.Claude?.enabled === true,
+      model: stored.Claude?.model || defaultSettings.Claude.model,
+    },
     consensusDropdownDefaultOpen: settings.consensusDropdownDefaultOpen === true,
   };
 }
@@ -190,19 +219,10 @@ function ConsensusDetails({
   defaultOpen?: boolean;
 }) {
   const [showClaims, setShowClaims] = useState(false);
-  const [isOpen, setIsOpen] = useState(defaultOpen);
-
-  useEffect(() => {
-    setIsOpen(defaultOpen);
-  }, [defaultOpen]);
 
   return (
     <div className={styles.consensusDetailsWrap}>
-      <details
-        className={styles.consensusDetails}
-        open={isOpen}
-        onToggle={(event) => setIsOpen(event.currentTarget.open)}
-      >
+      <details className={styles.consensusDetails} open={defaultOpen}>
         <summary className={styles.consensusSummary}>
           <span>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</span>
           <span className={styles.consensusSummaryText}>{result.summary}</span>
@@ -302,6 +322,15 @@ export default function Home() {
   const [isDark, setIsDark] = useState(true);
   const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
+  const [providerKeyDrafts, setProviderKeyDrafts] = useState<ProviderKeyDrafts>(emptyProviderKeyDrafts);
+  const [providerKeyStatus, setProviderKeyStatus] = useState<ProviderKeyStatus>({
+    GPT: { configured: false, masked: null, validatedAt: null },
+    Gemini: { configured: false, masked: null, validatedAt: null },
+    Claude: { configured: false, masked: null, validatedAt: null },
+  });
+  const [billingMode, setBillingMode] = useState<BillingMode>("managed");
+  const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
+  const [modelRefreshCounter, setModelRefreshCounter] = useState(0);
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModels);
   const [modelDiscoveryErrors, setModelDiscoveryErrors] = useState<Partial<Record<ProviderName, string>>>({});
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
@@ -320,9 +349,9 @@ export default function Home() {
   const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const lastRequestRef = useRef<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string } | null>(null);
+  const lastRequestRef = useRef<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
-  const chat = activeSession?.chat ?? [];
+  const chat = activeSession?.chat ?? EMPTY_CHAT;
   const result = activeSession?.result ?? null;
 
   useEffect(() => {
@@ -350,9 +379,14 @@ export default function Home() {
       }
       setUserEmail(data.user.email ?? "");
       setUserId(data.user.id);
-      const { data: remoteProfiles, error: remoteError } = await supabase.from("api_profiles").select("id, name, settings").order("created_at");
-      if (remoteError) {
-        setProfileSyncError(`Profile storage error: ${remoteError.message}`);
+      let remoteProfiles: SettingsProfile[] = [];
+      try {
+        const profileResponse = await authenticatedFetch("/api/settings/profiles");
+        const profilePayload = await profileResponse.json() as { profiles?: SettingsProfile[]; error?: string };
+        if (!profileResponse.ok) throw new Error(profilePayload.error ?? "Could not load profiles.");
+        remoteProfiles = profilePayload.profiles ?? [];
+      } catch (loadError) {
+        setProfileSyncError(loadError instanceof Error ? loadError.message : "Profile storage error.");
         setProfilesLoaded(true);
         setAuthChecked(true);
         return;
@@ -372,6 +406,22 @@ export default function Home() {
         setActiveProfileId(defaultProfile.id);
         setProfileName(defaultProfile.name);
         setSettings(defaultProfile.settings);
+      }
+      const [keysResponse, usageResponse] = await Promise.all([
+        authenticatedFetch("/api/settings/provider-keys"),
+        authenticatedFetch("/api/usage"),
+      ]);
+      if (keysResponse.ok) {
+        const keysPayload = await keysResponse.json() as { credentials?: ProviderKeyStatus };
+        if (keysPayload.credentials) setProviderKeyStatus(keysPayload.credentials);
+      }
+      if (usageResponse.ok) {
+        const usagePayload = await usageResponse.json() as UsageSummary;
+        setUsageSummary(usagePayload);
+        setBillingMode(usagePayload.billingMode);
+      } else {
+        const usagePayload = await usageResponse.json() as { error?: string };
+        setProfileSyncError(usagePayload.error ?? "Billing account unavailable.");
       }
       const { data: remoteChats, error: chatError } = await supabase
         .from("chat_sessions")
@@ -420,20 +470,18 @@ export default function Home() {
       setProfiles(updatedProfiles);
     }
     window.localStorage.setItem(PROFILES_KEY, JSON.stringify(updatedProfiles));
-    if (userEmail && activeProfileId) {
-      supabase.auth.getUser().then(({ data }) => {
-        if (data.user) {
-          supabase.from("api_profiles").upsert({
-            id: activeProfileId,
-            user_id: data.user.id,
-            name: profileName,
-            settings,
-          }).then(({ error: saveError }) => {
-            if (saveError) setProfileSyncError(`Profile save error: ${saveError.message}`);
-            else setProfileSyncError("");
-          });
+    if (activeProfileId) {
+      authenticatedFetch("/api/settings/profiles", {
+        method: "PUT",
+        body: JSON.stringify({ id: activeProfileId, name: profileName, settings }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json() as { error?: string };
+          setProfileSyncError(payload.error ?? "Profile save error.");
+        } else {
+          setProfileSyncError("");
         }
-      });
+      }).catch(() => setProfileSyncError("Profile save error. Check your connection."));
     }
   }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail, authChecked]);
 
@@ -502,23 +550,16 @@ export default function Home() {
   }, [chat, result, isLoading]);
 
   useEffect(() => {
-    if (!showSettings) return;
+    if (!showSettings || !userId) return;
 
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
       setModelDiscoveryErrors({});
       try {
-        const response = await fetch("/api/models", {
+        const response = await authenticatedFetch("/api/models", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
           signal: controller.signal,
-          body: JSON.stringify({
-            settings: {
-              GPT: { apiKey: settings.GPT.apiKey },
-              Gemini: { apiKey: settings.Gemini.apiKey },
-              Claude: { apiKey: settings.Claude.apiKey },
-            },
-          }),
+          body: JSON.stringify({}),
         });
         const payload = await response.json() as {
           models?: ModelCatalog;
@@ -544,7 +585,7 @@ export default function Home() {
           });
         }
         setModelDiscoveryErrors(payload.errors ?? {});
-      } catch (discoveryError) {
+      } catch {
         if (!controller.signal.aborted) {
           setModelDiscoveryErrors({
             GPT: "Could not refresh models. Check your connection and provider keys.",
@@ -559,26 +600,41 @@ export default function Home() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [showSettings, settings.GPT.apiKey, settings.Gemini.apiKey, settings.Claude.apiKey]);
+  }, [showSettings, userId, modelRefreshCounter]);
 
-  async function runRequest(requestMessages: ChatTurn[], userTurn: ChatTurn, sessionId: string) {
+  async function refreshUsageSummary() {
     try {
-      const response = await fetch("/api/chat", {
+      const response = await authenticatedFetch("/api/usage");
+      if (!response.ok) return;
+      const usage = await response.json() as UsageSummary;
+      setUsageSummary(usage);
+      setBillingMode(usage.billingMode);
+    } catch {
+      setProfileSyncError("Could not refresh plan usage.");
+    }
+  }
+
+  async function runRequest(requestMessages: ChatTurn[], userTurn: ChatTurn, sessionId: string, requestId: string) {
+    try {
+      const response = await authenticatedFetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: requestMessages, settings }),
+        body: JSON.stringify({ messages: requestMessages, settings, requestId, conversationId: sessionId }),
       });
 
       const payload = (await response.json()) as ResponsePayload & { error?: string };
 
       if (!response.ok) {
+        await refreshUsageSummary();
         const providerErrors = payload.errors?.length
           ? `\n${payload.errors.map((item) => `${item.provider}: ${item.message}`).join("\n")}`
           : "";
         throw new Error(`${payload.error ?? "Unable to fetch consensus."}${providerErrors}`);
       }
 
-      setStatusText("Consensus ready.");
+      setUsageSummary((current) => current && payload.usage
+        ? { ...current, creditsRemaining: payload.usage.creditsRemaining, creditsUsed: current.includedCredits - payload.usage.creditsRemaining }
+        : current);
+      setStatusText(payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
       setSessions((current) => current.map((session) => {
         if (session.id !== sessionId) return session;
         const currentChat = session.chat;
@@ -614,7 +670,8 @@ export default function Home() {
 
     const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
     const requestMessages = [...chat, userTurn];
-    lastRequestRef.current = { messages: requestMessages, userTurn, sessionId: activeSession.id };
+    const requestId = crypto.randomUUID();
+    lastRequestRef.current = { messages: requestMessages, userTurn, sessionId: activeSession.id, requestId };
 
     setSessions((current) => current.map((session) => session.id === activeSession.id
       ? {
@@ -629,16 +686,18 @@ export default function Home() {
     setError(null);
     setIsLoading(true);
     setStatusText(`Asking ${getEnabledProviderLabel(settings)}…`);
-    await runRequest(requestMessages, userTurn, activeSession.id);
+    await runRequest(requestMessages, userTurn, activeSession.id, requestId);
   }
 
   async function retryLastRequest() {
     const lastRequest = lastRequestRef.current;
     if (!lastRequest || isLoading) return;
+    const requestId = crypto.randomUUID();
+    lastRequestRef.current = { ...lastRequest, requestId };
     setError(null);
     setIsLoading(true);
     setStatusText("Trying again…");
-    await runRequest(lastRequest.messages, lastRequest.userTurn, lastRequest.sessionId);
+    await runRequest(lastRequest.messages, lastRequest.userTurn, lastRequest.sessionId, requestId);
   }
 
   function startNewChat() {
@@ -678,23 +737,90 @@ export default function Home() {
       setKeySaveStatus((current) => ({ ...current, [provider]: "Sign in to save keys to your profile." }));
       return;
     }
-
-    const name = profileName.trim() || "Default";
-    const { error: saveError } = await supabase.from("api_profiles").upsert({
-      id: activeProfileId,
-      user_id: userId,
-      name,
-      settings,
-    });
-    if (saveError) {
-      setKeySaveStatus((current) => ({ ...current, [provider]: `Save failed: ${saveError.message}` }));
+    const key = providerKeyDrafts[provider].trim();
+    if (!key) {
+      setKeySaveStatus((current) => ({ ...current, [provider]: "Enter a key to save." }));
       return;
     }
 
-    setProfiles((current) => ensureUniqueProfileNames(current.map((profile) => (
-      profile.id === activeProfileId ? { ...profile, name, settings } : profile
-    ))));
-    setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key saved.` }));
+    try {
+      const response = await authenticatedFetch("/api/settings/provider-keys", {
+        method: "PUT",
+        body: JSON.stringify({ provider, key }),
+      });
+      const payload = await response.json() as { masked?: string; error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `Could not save ${provider} key.`);
+      setProviderKeyDrafts((current) => ({ ...current, [provider]: "" }));
+      setProviderKeyStatus((current) => ({
+        ...current,
+        [provider]: { configured: true, masked: payload.masked ?? "••••", validatedAt: new Date().toISOString() },
+      }));
+      setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key validated and saved encrypted.` }));
+      setModelRefreshCounter((current) => current + 1);
+    } catch (saveError) {
+      setKeySaveStatus((current) => ({ ...current, [provider]: saveError instanceof Error ? saveError.message : `Could not save ${provider} key.` }));
+    }
+  }
+
+  async function deleteProviderKey(provider: ProviderName) {
+    try {
+      const response = await authenticatedFetch("/api/settings/provider-keys", {
+        method: "DELETE",
+        body: JSON.stringify({ provider }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? `Could not delete ${provider} key.`);
+      setProviderKeyStatus((current) => ({
+        ...current,
+        [provider]: { configured: false, masked: null, validatedAt: null },
+      }));
+      setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key deleted.` }));
+      setModelRefreshCounter((current) => current + 1);
+    } catch (deleteError) {
+      setKeySaveStatus((current) => ({ ...current, [provider]: deleteError instanceof Error ? deleteError.message : `Could not delete ${provider} key.` }));
+    }
+  }
+
+  async function changeBillingMode(mode: BillingMode) {
+    try {
+      const response = await authenticatedFetch("/api/settings/billing-mode", {
+        method: "PUT",
+        body: JSON.stringify({ mode }),
+      });
+      const payload = await response.json() as { error?: string };
+      if (!response.ok) throw new Error(payload.error ?? "Could not change billing mode.");
+      setBillingMode(mode);
+      setUsageSummary((current) => current ? { ...current, billingMode: mode } : current);
+      setKeySaveStatus({});
+      setModelRefreshCounter((current) => current + 1);
+    } catch (modeError) {
+      setProfileSyncError(modeError instanceof Error ? modeError.message : "Could not change billing mode.");
+    }
+  }
+
+  async function startCheckout(planId: "basic" | "plus") {
+    try {
+      const response = await authenticatedFetch("/api/billing/checkout", {
+        method: "POST",
+        body: JSON.stringify({ planId }),
+      });
+      const payload = await response.json() as { url?: string; error?: string };
+      if (!response.ok || !payload.url) throw new Error(payload.error ?? "Checkout is unavailable.");
+      window.location.assign(payload.url);
+    } catch (checkoutError) {
+      setProfileSyncError(checkoutError instanceof Error ? checkoutError.message : "Checkout is unavailable.");
+    }
+  }
+
+  async function openBillingPortal() {
+    try {
+      const response = await authenticatedFetch("/api/billing/portal", { method: "POST", body: "{}" });
+      const payload = await response.json() as { url?: string; error?: string };
+      if (!response.ok || !payload.url) throw new Error(payload.error ?? "Billing portal is unavailable.");
+      window.location.assign(payload.url);
+    } catch (portalError) {
+      setProfileSyncError(portalError instanceof Error ? portalError.message : "Billing portal is unavailable.");
+    }
   }
 
   function deleteProfile() {
@@ -708,9 +834,15 @@ export default function Home() {
     setProfileName(nextProfile.name);
     setSettings(nextProfile.settings);
     if (userEmail) {
-      supabase.from("api_profiles").delete().eq("id", activeProfileId).then(({ error: deleteError }) => {
-        if (deleteError) setProfileSyncError(`Profile delete error: ${deleteError.message}`);
-      });
+      authenticatedFetch("/api/settings/profiles", {
+        method: "DELETE",
+        body: JSON.stringify({ id: activeProfileId }),
+      }).then(async (response) => {
+        if (!response.ok) {
+          const payload = await response.json() as { error?: string };
+          setProfileSyncError(payload.error ?? "Profile delete error.");
+        }
+      }).catch(() => setProfileSyncError("Profile delete error. Check your connection."));
     }
   }
 
@@ -736,12 +868,21 @@ export default function Home() {
     setActiveProfileId(signedOutProfile.id);
     setProfileName(signedOutProfile.name);
     setSettings(signedOutProfile.settings);
+    setProviderKeyDrafts(emptyProviderKeyDrafts);
+    setProviderKeyStatus({
+      GPT: { configured: false, masked: null, validatedAt: null },
+      Gemini: { configured: false, masked: null, validatedAt: null },
+      Claude: { configured: false, masked: null, validatedAt: null },
+    });
+    setUsageSummary(null);
+    setBillingMode("managed");
     setProfileSyncError("");
     window.localStorage.removeItem(CHAT_HISTORY_KEY);
     const signedOutChat = createChatSession();
     setSessions([signedOutChat]);
     setActiveChatId(signedOutChat.id);
     setUserEmail("");
+    setUserId("");
   }
 
   function deleteChat(session: ChatSession) {
@@ -854,7 +995,31 @@ export default function Home() {
               />
               Open consensus dropdowns by default
             </label>
-            <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers." : "Keys are stored locally until you sign in."}</p>
+            {userId && (
+              <section className={styles.billingSettings} aria-labelledby="billing-mode-title">
+                <h3 id="billing-mode-title">Billing mode</h3>
+                <label className={styles.billingModeOption}>
+                  <input type="radio" name="billing-mode" checked={billingMode === "managed"} onChange={() => changeBillingMode("managed")} />
+                  <span><strong>Managed by Consensus</strong><small>No provider keys needed. Uses your plan allowance.</small></span>
+                </label>
+                <label className={styles.billingModeOption}>
+                  <input type="radio" name="billing-mode" checked={billingMode === "byok"} onChange={() => changeBillingMode("byok")} />
+                  <span><strong>Bring Your Own Keys</strong><small>Provider inference is billed to your provider accounts.</small></span>
+                </label>
+              </section>
+            )}
+            {usageSummary && userId && (
+              <section className={styles.usageCard} aria-label="Plan usage">
+                <div><strong>Plan: {usageSummary.plan}</strong><span>{usageSummary.creditsUsed} / {usageSummary.includedCredits} credits used</span></div>
+                <p>Renews {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
+                <div className={styles.billingActions}>
+                  <button type="button" className={styles.profileButton} onClick={() => startCheckout("basic")}>Upgrade to Basic</button>
+                  <button type="button" className={styles.profileButton} onClick={() => startCheckout("plus")}>Upgrade to Plus</button>
+                  <button type="button" className={styles.profileButton} onClick={openBillingPortal}>Manage billing</button>
+                </div>
+              </section>
+            )}
+            <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers. BYOK secrets are encrypted on the server." : "Sign in to save provider keys and sync profiles."}</p>
             {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
             {userEmail ? (
               <div className={styles.accountRow}>
@@ -904,26 +1069,29 @@ export default function Home() {
                   <input
                     className={styles.settingsInput}
                     type="password"
-                    value={settings[provider].apiKey}
+                    value={providerKeyDrafts[provider]}
                     onChange={(event) => {
                       setKeySaveStatus((current) => ({ ...current, [provider]: "" }));
-                      setSettings((current) => ({
-                        ...current,
-                        [provider]: { ...current[provider], apiKey: event.target.value },
-                      }));
+                      setProviderKeyDrafts((current) => ({ ...current, [provider]: event.target.value }));
                     }}
-                    placeholder="API key (optional if in .env.local)"
+                    placeholder="Enter key to save for BYOK"
                     aria-label={`${provider} API key`}
                   />
                   <button
                     type="button"
                     className={styles.providerKeySaveButton}
                     onClick={() => saveProviderKey(provider)}
-                    disabled={!userId}
+                    disabled={!userId || !providerKeyDrafts[provider].trim()}
                   >
                     Save key
                   </button>
                 </div>
+                {providerKeyStatus[provider].configured && (
+                  <div className={styles.savedKeyRow}>
+                    <span>Saved key: {providerKeyStatus[provider].masked}</span>
+                    <button type="button" className={styles.deleteKeyButton} onClick={() => deleteProviderKey(provider)}>Delete key</button>
+                  </div>
+                )}
                 {keySaveStatus[provider] && <p className={styles.providerKeySaveStatus}>{keySaveStatus[provider]}</p>}
               </div>
               );
@@ -980,6 +1148,11 @@ export default function Home() {
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
+                {message.role === "assistant" && message.result?.errors.length ? (
+                  <div className={styles.partialProviderWarning} role="status">
+                    Partial provider response: {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}
+                  </div>
+                ) : null}
                 {message.role === "assistant" && message.result && (
                   <ConsensusDetails
                     result={message.result}
