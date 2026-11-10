@@ -53,7 +53,7 @@ Stripe checkout displays the configured price before payment. Webhooks grant Pre
 
 ### Models and usage
 
-`plan_catalog.allowed_models` maps provider names (`GPT`, `Gemini`, `Claude`) to model-ID arrays. Empty arrays fall back to the configured server models. Users choose one model per provider and one or more providers. `MIN_SUCCESSFUL_PROVIDERS` is no longer used. Optional `MODEL_PRICING_JSON` configures token cost estimates; without rates, usage is recorded but cost is unavailable.
+`plan_catalog.allowed_models` maps provider names (`GPT`, `Gemini`, `Claude`) to model-ID arrays. Empty arrays fall back to comma-separated `OPENAI_ALLOWED_MODELS`, `GEMINI_ALLOWED_MODELS`, and `ANTHROPIC_ALLOWED_MODELS` when configured; otherwise they use the server default plus built-in alternatives. Explicit non-empty plan lists take priority. The same allowlist is enforced when sending requests. Users choose one model per provider and one or more providers. `MIN_SUCCESSFUL_PROVIDERS` is no longer used. Optional `MODEL_PRICING_JSON` configures token cost estimates; without rates, usage is recorded but cost is unavailable.
 
 Keep `.env.local` and server credentials out of Git. The historical encrypted-key helpers and tables are unused by the application; `BYOK_ENCRYPTION_KEY` is no longer required.
 
@@ -69,3 +69,9 @@ Additional guest limits are atomic in Postgres: 5 attempts per network per minut
 Production network identification trusts Vercel's `x-vercel-forwarded-for` header. Local development uses one shared localhost bucket. Other production hosts fail closed until a trusted proxy integration is implemented. Missing limiter configuration or database errors also fail closed for guests. Signed-in permanent accounts retain their normal plan limits.
 
 This reduces casual cookie/storage resets, not determined abuse across networks or accounts. Supabase's anonymous signup rate limits still apply. For a public launch, enable CAPTCHA/Turnstile for anonymous sign-ins and integrate the challenge token before calling `signInAnonymously`; the current UI does not implement that challenge. Guest identities also consume Auth storage and need a retention/cleanup policy. These controls do not establish one allowance per real person.
+
+### Choosing another model
+
+Open **Settings → Models**, select a model under the provider, and send a message or use **Try again**. Provider failures include a **Change models** shortcut. Choices persist with the current profile, including guest profiles. Selection is manual; the app never silently switches providers or models. Model availability, quotas, and outages still depend on the provider account.
+
+Built-in alternatives include GPT-4.1 Mini, Gemini 3.7 Flash and 3.5 Flash-Lite, and Claude Haiku 4.5 alongside the configured defaults. Review provider support when changing the catalog: [OpenAI](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [Google](https://firebase.google.com/docs/ai-logic/models), [Anthropic](https://platform.claude.com/docs/en/models/haiku-4-5/overview). Configure explicit per-plan lists or server model-list variables to control which models your app funds. No SQL migration is needed for plans with empty model lists.

@@ -156,9 +156,7 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
     },
     Gemini: {
       enabled: stored.Gemini?.enabled !== false,
-      model: ["gemini-3.6-flash", "gemini-2.5-flash", "gemini-2.5-pro"].includes(stored.Gemini?.model ?? "")
-        ? defaultSettings.Gemini.model
-        : stored.Gemini?.model || defaultSettings.Gemini.model,
+      model: stored.Gemini?.model || defaultSettings.Gemini.model,
     },
     Claude: {
       enabled: stored.Claude?.enabled === true,
@@ -971,8 +969,44 @@ export default function Home() {
           ) : (
             <div className={styles.accountRow}><span>Browsing as a guest</span><button type="button" className={styles.profileButton} onClick={() => { setShowAccountForm(true); setAuthMode("login"); }}>Sign in</button></div>
           )}
+          {userId && <section className={styles.settingsContent} aria-labelledby="model-choices-title">
+            <h3 id="model-choices-title">Models</h3>
+          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. If a model is busy, select another and retry. Changes apply to your next request.</p>
+          {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
+            const modelIds = modelCatalog[provider];
+            return (
+            <div key={provider} className={styles.providerSetting}>
+              <label className={styles.providerCheck}>
+                <input
+                  type="checkbox"
+                  checked={settings[provider].enabled}
+                  disabled={settings[provider].enabled && Object.values(settings).filter((value) => typeof value === "object" && value.enabled).length <= 1 || isLoading}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    [provider]: { ...current[provider], enabled: event.target.checked },
+                  }))}
+                />
+                {provider}
+              </label>
+              <select
+                className={styles.settingsInput}
+                value={settings[provider].model}
+                onChange={(event) => setSettings((current) => ({
+                  ...current,
+                  [provider]: { ...current[provider], model: event.target.value },
+                }))}
+                aria-label={`${provider} model`}
+                disabled={isLoading}
+              >
+                {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
+              </select>
+              {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
+            </div>
+            );
+          })}
+          </section>}
           {userId && <details className={styles.advancedSettings}>
-            <summary>Customize models and preferences</summary>
+            <summary>Profiles and display preferences</summary>
             <div className={styles.settingsContent}>
             <div className={styles.historyHeader}>
               <p className={styles.mutedLabel}>Profile and providers</p>
@@ -1023,38 +1057,7 @@ export default function Home() {
             />
             Open consensus dropdowns by default
           </label>
-          <p className={styles.settingsNote}>Choose one provider for a normal chat, or multiple providers to compare answers.</p>
-          {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
-            const modelIds = modelCatalog[provider];
-            return (
-            <div key={provider} className={styles.providerSetting}>
-              <label className={styles.providerCheck}>
-                <input
-                  type="checkbox"
-                  checked={settings[provider].enabled}
-                  disabled={settings[provider].enabled && Object.values(settings).filter((value) => typeof value === "object" && value.enabled).length <= 1}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    [provider]: { ...current[provider], enabled: event.target.checked },
-                  }))}
-                />
-                {provider}
-              </label>
-              <select
-                className={styles.settingsInput}
-                value={settings[provider].model}
-                onChange={(event) => setSettings((current) => ({
-                  ...current,
-                  [provider]: { ...current[provider], model: event.target.value },
-                }))}
-                aria-label={`${provider} model`}
-              >
-                {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
-              </select>
-              {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
-            </div>
-            );
-          })}
+
             </div>
           </details>}
             </div>
@@ -1084,6 +1087,7 @@ export default function Home() {
                 {message.role === "assistant" && message.result?.errors.length ? (
                   <div className={styles.partialProviderWarning} role="status">
                     Partial provider response: {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}
+                    <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>Change models</button>
                   </div>
                 ) : null}
                 {message.role === "assistant" && message.result && (

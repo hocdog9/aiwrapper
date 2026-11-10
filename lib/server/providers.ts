@@ -24,6 +24,7 @@ export function safeProviderError(error: unknown): string {
   const status = candidate?.status ?? candidate?.statusCode;
   if (status === 401 || status === 403) return "The provider rejected this credential. Check or replace the configured key.";
   if (status === 404) return "The selected model is unavailable to this provider account. Choose another model in Settings.";
+  if (status === 503) return "This model is busy. Choose another model in Settings or try again later.";
   if (status === 429) return "The provider rate limit or account quota was reached. Try again later or check provider billing.";
   if (candidate?.name === "AbortError" || candidate?.name === "TimeoutError") return "The provider request timed out. Try again.";
   return "The provider could not complete this request. Try again or check the provider status.";
