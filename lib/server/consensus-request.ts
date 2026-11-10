@@ -1,0 +1,272 @@
+import "server-only";
+
+import { NextRequest, NextResponse } from "next/server";
+import { buildConsensusClaims } from "@/lib/consensus";
+import { authenticateRequest } from "./auth";
+import { getBillingMode, resolveProviderCredential, type BillingMode } from "./credentials";
+import { estimateProviderCostMicros, type ProviderName, type TokenUsage } from "./model-pricing";
+import { invokeProvider, safeProviderError, type ImageAttachment } from "./providers";
+import { DEFAULT_MODELS, getModelAllowlist } from "./model-policy";
+
+type ChatMessage = { role: string; content: string; images?: ImageAttachment[] };
+type ProviderChoice = { enabled?: boolean; model?: string };
+type RequestSettings = Partial<Record<ProviderName, ProviderChoice>>;
+type SafeProviderError = { provider: string; message: string };
+
+const PROVIDERS: ProviderName[] = ["GPT", "Gemini", "Claude"];
+const MAX_MESSAGES = 12;
+const MAX_PROMPT_CHARACTERS = 24_000;
+const MAX_IMAGES = 4;
+const MAX_TOTAL_IMAGE_BYTES = 3 * 1024 * 1024;
+const configuredMinimum = Number.parseInt(process.env.MIN_SUCCESSFUL_PROVIDERS || "2", 10);
+const MIN_SUCCESSFUL_PROVIDERS = Number.isFinite(configuredMinimum) ? Math.min(PROVIDERS.length, Math.max(1, configuredMinimum)) : 2;
+
+type ConsensusPayload = {
+  consensus: string;
+  agreementScore: number | null;
+  summary: string;
+  agreements: string[];
+  disagreements: string[];
+  confidenceNote: string;
+  claims: ReturnType<typeof buildConsensusClaims>;
+  responses: Array<{ provider: ProviderName; content: string }>;
+  errors: SafeProviderError[];
+  requestId: string;
+  usage: { creditCharged: number; creditsRemaining: number };
+};
+
+function safeErrorResponse(error: string, status: number) {
+  return NextResponse.json({ error }, { status });
+}
+
+function mapDatabaseError(error: { message?: string; code?: string }): { message: string; status: number } {
+  const message = error.message ?? "";
+  if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Consensus.", status: 401 };
+  if (message.includes("NO_CREDITS")) return { message: "You have used this period's Consensus allowance. Upgrade your plan or switch to BYOK in Settings.", status: 402 };
+  if (message.includes("PLAN_LIMIT")) return { message: "This subscription is not active. Update your billing details to continue.", status: 402 };
+  if (message.includes("RATE_LIMITED")) return { message: "Request limit reached. Wait a minute and try again.", status: 429 };
+  if (message.includes("CONCURRENCY_LIMIT")) return { message: "You already have the maximum number of Consensus requests processing. Wait for one to finish.", status: 429 };
+  if (message.includes("REQUEST_IN_PROGRESS")) return { message: "This request is already processing. Wait for it to finish.", status: 409 };
+  if (message.includes("REQUEST_ALREADY_PROCESSED")) return { message: "This request was already processed. Start a new request to try again.", status: 409 };
+  return { message: "Billing is unavailable. Confirm that the latest Supabase migration was applied.", status: 503 };
+}
+
+function cleanMessages(value: unknown): { messages: ChatMessage[]; error?: string } {
+  if (!Array.isArray(value) || !value.length) return { messages: [], error: "Add a message before sending." };
+  if (value.length > MAX_MESSAGES) return { messages: [], error: `A conversation can contain at most ${MAX_MESSAGES} messages per request.` };
+
+  const messages: ChatMessage[] = [];
+  let characters = 0;
+  let totalImages = 0;
+  let totalImageBytes = 0;
+  for (const item of value) {
+    if (!item || typeof item !== "object") return { messages: [], error: "Invalid message payload." };
+    const role = item.role === "assistant" ? "assistant" : item.role === "user" ? "user" : "";
+    if (!role || typeof item.content !== "string") return { messages: [], error: "Invalid message payload." };
+    const content = item.content.trim().slice(0, 4_000);
+    characters += content.length;
+    const rawImages = Array.isArray(item.images)
+      ? item.images
+      : item.image && typeof item.image === "object"
+        ? [item.image]
+        : [];
+    totalImages += rawImages.length;
+    if (totalImages > MAX_IMAGES) return { messages: [], error: `Attach no more than ${MAX_IMAGES} images per request.` };
+    const images: ImageAttachment[] = [];
+    for (const image of rawImages) {
+      if (typeof image?.dataUrl !== "string" || typeof image?.mimeType !== "string" || !image.dataUrl.startsWith(`data:${image.mimeType};base64,`)) {
+        return { messages: [], error: "An attached image is invalid." };
+      }
+      const base64 = image.dataUrl.split(",", 2)[1] ?? "";
+      totalImageBytes += Math.floor(base64.length * 3 / 4);
+      if (!base64 || totalImageBytes > MAX_TOTAL_IMAGE_BYTES) return { messages: [], error: "Attached images must total less than 3 MB." };
+      if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(image.mimeType)) return { messages: [], error: "Use a PNG, JPEG, WebP, or GIF image." };
+      images.push({ dataUrl: image.dataUrl, mimeType: image.mimeType });
+    }
+    messages.push({ role, content, images });
+  }
+  if (characters > MAX_PROMPT_CHARACTERS) return { messages: [], error: "This conversation is too long. Start a new chat or shorten the prompt." };
+  return { messages };
+}
+
+function buildPrompt(messages: ChatMessage[]): string {
+  const recent = messages.map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").trim()}${message.images?.length ? "\n[Image attached]" : ""}`).join("\n\n");
+  return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Answer directly and helpfully.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
+}
+
+function buildConsolidationPrompt(messages: ChatMessage[], responses: Array<{ provider: ProviderName; content: string }>): string {
+  const question = messages[messages.length - 1]?.content ?? "";
+  const answerSet = responses.map((response) => `${response.provider} answer:\n${response.content}`).join("\n\n");
+  return `Consolidate the following answers into one clear, accurate response. Keep the strongest points from both, remove repetition, and make the final answer concise while preserving the key reasoning and explanation.\n\nOriginal question:\n${question}\n\nAnswers to consolidate:\n${answerSet}\n\nReturn only the consolidated answer. Do not mention the models or the consolidation process.`;
+}
+
+function formatConsensusText(claims: Array<{ claim: string; supportCount: number; totalModels: number }>): string {
+  if (!claims.length) return "The model responses are too divergent to reduce to a clean single summary.";
+  return `The strongest shared pattern is:\n\n${claims.slice(0, 3).map((claim) => `${claim.supportCount}/${claim.totalModels} agree — ${claim.claim}`).join("\n\n")}`;
+}
+
+function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {
+  const claims = buildConsensusClaims(responses);
+  const agreementScore = claims.length
+    ? Math.min(100, Math.max(0, Math.round((claims.reduce((sum, item) => sum + item.supportCount, 0) / (claims.length * responses.length)) * 100)))
+    : null;
+  const agreements = claims.filter((item) => item.supportCount >= 2).slice(0, 3).map((item) => item.claim);
+  const disagreements = claims.filter((item) => item.supportCount <= 1).slice(0, 3).map((item) => item.claim);
+  const summary = agreementScore === null ? "No consensus available" : agreementScore >= 75 ? "High model agreement" : agreementScore >= 45 ? "Moderate model agreement" : "Models disagree";
+  const confidenceNote = agreementScore === null ? "No reliable agreement signal" : agreementScore >= 75 ? "The responses converge on the same broad direction, but not necessarily the same certainty level." : agreementScore >= 45 ? "The models mostly align on core trade-offs, with some meaningful nuance." : "The models diverge on key assumptions, so the final result should be treated as provisional.";
+  return {
+    consensus: formatConsensusText(claims), agreementScore, summary, agreements, disagreements, confidenceNote, claims, responses, errors, requestId,
+    usage: { creditCharged: billingMode === "managed" ? 1 : 0, creditsRemaining },
+  };
+}
+
+async function recordUsage(input: {
+  context: NonNullable<Awaited<ReturnType<typeof authenticateRequest>>>;
+  requestId: string;
+  conversationId: string;
+  billingMode: BillingMode;
+  provider: ProviderName;
+  model: string;
+  callKind: "response" | "synthesis";
+  status: "success" | "failed";
+  usage?: TokenUsage;
+  latencyMs: number;
+  providerRequestId?: string | null;
+}) {
+  const usage = input.usage ?? { inputTokens: null, outputTokens: null, cachedInputTokens: null };
+  const { error } = await input.context.adminClient!.from("usage_events").upsert({
+    user_id: input.context.user.id,
+    request_id: input.requestId,
+    conversation_id: input.conversationId,
+    provider: input.provider,
+    model: input.model,
+    billing_mode: input.billingMode,
+    call_kind: input.callKind,
+    input_tokens: usage.inputTokens,
+    output_tokens: usage.outputTokens,
+    cached_input_tokens: usage.cachedInputTokens,
+    estimated_provider_cost_micros: input.billingMode === "managed"
+      ? estimateProviderCostMicros(input.provider, input.model, usage)
+      : null,
+    credits_charged: 0,
+    status: input.status,
+    latency_ms: input.latencyMs,
+    provider_request_id: input.providerRequestId ?? null,
+  }, { onConflict: "request_id,provider,call_kind" });
+  if (error) throw new Error("Usage ledger could not record this provider call.");
+}
+
+export async function processConsensusRequest(request: NextRequest): Promise<NextResponse> {
+  const context = await authenticateRequest(request);
+  if (!context) return safeErrorResponse("Sign in to use Consensus.", 401);
+  if (!context.adminClient) return safeErrorResponse("Server setup is incomplete: configure SUPABASE_SERVICE_ROLE_KEY before serving model requests.", 503);
+  const contentLength = Number(request.headers.get("content-length") ?? 0);
+  if (contentLength > 4_500_000) return safeErrorResponse("The request is too large. Reduce prompt or image size.", 413);
+
+  let reservedRequestId: string | null = null;
+  try {
+    const body = await request.json().catch(() => ({}));
+    const requestId = typeof body.requestId === "string" ? body.requestId : "";
+    const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) return safeErrorResponse("A valid request ID is required.", 400);
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) return safeErrorResponse("A valid conversation ID is required.", 400);
+    const cleaned = cleanMessages(body.messages);
+    if (cleaned.error) return safeErrorResponse(cleaned.error, 400);
+
+    const requestSettings = body.settings && typeof body.settings === "object" ? body.settings as RequestSettings : {};
+    const selectedProviders = PROVIDERS.filter((provider) => requestSettings[provider]?.enabled !== false);
+    if (!selectedProviders.length) return safeErrorResponse("Enable at least one provider in Settings.", 400);
+
+    const billingMode = await getBillingMode(context);
+    const modelAllowlist = await getModelAllowlist(context, billingMode);
+    for (const provider of selectedProviders) {
+      const selectedModel = typeof requestSettings[provider]?.model === "string"
+        ? requestSettings[provider]!.model!
+        : DEFAULT_MODELS[provider];
+      if (modelAllowlist && !modelAllowlist[provider]?.includes(selectedModel)) {
+        return safeErrorResponse(`${selectedModel} is not included in your plan. Choose an allowed model or switch to BYOK.`, 403);
+      }
+    }
+    const { data: reservation, error: reserveError } = await context.userClient.rpc("reserve_consensus_credit", { p_request_id: requestId });
+    if (reserveError) {
+      const mapped = mapDatabaseError(reserveError);
+      return safeErrorResponse(mapped.message, mapped.status);
+    }
+    if (reservation?.cachedResponse) return NextResponse.json(reservation.cachedResponse);
+    reservedRequestId = requestId;
+
+    const userMessages = cleaned.messages.filter((message) => message.role === "user");
+    const prompt = buildPrompt(cleaned.messages);
+    const latestImages = userMessages[userMessages.length - 1]?.images ?? [];
+    const errors: SafeProviderError[] = [];
+    const outcomes = await Promise.all(selectedProviders.map(async (provider) => {
+      const model = typeof requestSettings[provider]?.model === "string" && requestSettings[provider]!.model!.length <= 160
+        ? requestSettings[provider]!.model!
+        : DEFAULT_MODELS[provider];
+      const startedAt = Date.now();
+      try {
+        const credential = await resolveProviderCredential(context, provider, billingMode);
+        const result = await invokeProvider({ provider, apiKey: credential.apiKey, model, prompt, images: latestImages });
+        if (!result.text.trim()) throw new Error("Provider returned no response text.");
+        await recordUsage({ context, requestId, conversationId, billingMode, provider, model, callKind: "response", status: "success", usage: result.usage, latencyMs: result.latencyMs, providerRequestId: result.providerRequestId });
+        return { provider, model, result };
+      } catch (error) {
+        const message = error instanceof Error && error.name === "CredentialResolutionError"
+          ? error.message
+          : safeProviderError(error);
+        errors.push({ provider, message });
+        await recordUsage({ context, requestId, conversationId, billingMode, provider, model, callKind: "response", status: "failed", latencyMs: Date.now() - startedAt });
+        return null;
+      }
+    }));
+
+    const successful = outcomes.filter((outcome): outcome is NonNullable<typeof outcome> => outcome !== null);
+    const providerResponses = successful.map(({ provider, result }) => ({ provider, content: result.text }));
+    if (successful.length < MIN_SUCCESSFUL_PROVIDERS) {
+      await context.userClient.rpc("fail_consensus_request", { p_request_id: requestId });
+      reservedRequestId = null;
+      return NextResponse.json({
+        error: `Only ${successful.length} provider(s) responded; at least ${MIN_SUCCESSFUL_PROVIDERS} are required. No credit was used.`,
+        errors,
+        requestId,
+      }, { status: 502 });
+    }
+
+    const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
+    for (const candidate of successful) {
+      try {
+        const synthesis = await invokeProvider({
+          provider: candidate.provider,
+          apiKey: (await resolveProviderCredential(context, candidate.provider, billingMode)).apiKey,
+          model: candidate.model,
+          prompt: buildConsolidationPrompt(cleaned.messages, providerResponses),
+        });
+        await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "success", usage: synthesis.usage, latencyMs: synthesis.latencyMs, providerRequestId: synthesis.providerRequestId });
+        if (synthesis.text) consensus.consensus = synthesis.text;
+        break;
+      } catch (error) {
+        const message = safeProviderError(error);
+        errors.push({ provider: `${candidate.provider} synthesis`, message });
+        await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: 0 });
+      }
+    }
+    consensus.errors = errors;
+
+    const { data: billing } = await context.userClient.from("user_billing")
+      .select("included_credits, credits_used").eq("user_id", context.user.id).maybeSingle();
+    consensus.usage.creditsRemaining = billing ? Math.max(0, billing.included_credits - billing.credits_used) : 0;
+
+    const { error: completeError } = await context.userClient.rpc("complete_consensus_request", { p_request_id: requestId, p_response: consensus });
+    if (completeError) throw new Error("Could not safely finalize this request. No response was saved.");
+    reservedRequestId = null;
+    return NextResponse.json(consensus);
+  } catch (error) {
+    if (reservedRequestId) await context.userClient.rpc("fail_consensus_request", { p_request_id: reservedRequestId });
+    const message = error instanceof Error && error.name === "CredentialResolutionError"
+      ? error.message
+      : error instanceof Error && error.message === "Usage ledger could not record this provider call."
+        ? error.message
+        : "Consensus request failed safely. Try again, or check billing and provider settings.";
+    return safeErrorResponse(message, 500);
+  }
+}

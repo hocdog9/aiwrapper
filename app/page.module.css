@@ -137,7 +137,8 @@
 .settingsPanel {
   position: relative;
   box-sizing: border-box;
-  width: min(620px, calc(100vw - 40px));
+  width: min(620px, 100%);
+  min-width: 0;
   max-height: min(820px, calc(100vh - 40px));
   display: grid;
   gap: 10px;
@@ -151,14 +152,13 @@
 
 .settingsBackdrop {
   position: fixed;
-  top: 0;
-  left: 0;
-  width: 100vw;
-  height: 100vh;
+  inset: 0;
+  box-sizing: border-box;
   z-index: 20;
   display: grid;
   place-items: center;
   padding: 20px;
+  overflow: hidden;
   background: rgba(15, 23, 42, 0.48);
 }
 
@@ -190,6 +190,7 @@
 
 .settingsContent {
   display: grid;
+  min-width: 0;
   gap: 10px;
 }
 
@@ -208,6 +209,101 @@
   border-color: rgba(148, 163, 184, 0.3);
 }
 
+.billingSettings,
+.usageCard {
+  display: grid;
+  gap: 8px;
+  min-width: 0;
+  padding: 12px;
+  border: 1px solid #d1d5db;
+  border-radius: 10px;
+}
+
+.billingSettings h3 {
+  margin: 0;
+  font-size: 0.9rem;
+}
+
+.dark .billingSettings,
+.dark .usageCard {
+  border-color: rgba(148, 163, 184, 0.25);
+  background: rgba(15, 23, 42, 0.55);
+}
+
+.billingModeOption {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  font-size: 0.8rem;
+}
+
+.billingModeOption input {
+  margin-top: 3px;
+}
+
+.billingModeOption span,
+.usageCard > div:first-child {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+
+.billingModeOption small,
+.usageCard p,
+.usageCard > div:first-child > span {
+  color: #6b7280;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+
+.dark .billingModeOption small,
+.dark .usageCard p,
+.dark .usageCard > div:first-child > span {
+  color: #9ca3af;
+}
+
+.usageCard p {
+  margin: 0;
+}
+
+.billingActions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.savedKeyRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: #6b7280;
+  font-size: 0.72rem;
+}
+
+.savedKeyRow span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.deleteKeyButton {
+  flex: 0 0 auto;
+  border: 1px solid #fda4af;
+  border-radius: 7px;
+  background: transparent;
+  color: #be123c;
+  padding: 5px 8px;
+  font: inherit;
+  font-size: 0.7rem;
+  cursor: pointer;
+}
+
+.dark .deleteKeyButton {
+  border-color: rgba(251, 113, 133, 0.5);
+  color: #fda4af;
+}
+
 .settingsNote {
   color: #6b7280;
   font-size: 0.74rem;
@@ -216,11 +312,13 @@
 
 .profileActions {
   display: flex;
+  min-width: 0;
   gap: 6px;
 }
 
 .profileButton {
   flex: 1;
+  min-width: 0;
   border: 1px solid #d1d5db;
   border-radius: 8px;
   background: transparent;
@@ -259,11 +357,17 @@
 
 .accountRow {
   display: flex;
+  min-width: 0;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
   color: #6b7280;
   font-size: 0.74rem;
+}
+
+.accountRow span {
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 
 .authForm {
@@ -311,6 +415,7 @@
 
 .settingsInput {
   width: 100%;
+  min-width: 0;
   box-sizing: border-box;
   border: 1px solid #d1d5db;
   border-radius: 8px;
@@ -319,6 +424,46 @@
   padding: 7px 8px;
   font: inherit;
   font-size: 0.75rem;
+}
+
+.providerKeySaveRow {
+  display: flex;
+  min-width: 0;
+  align-items: center;
+  gap: 10px;
+}
+
+.providerKeySaveRow .settingsInput {
+  flex: 1 1 0;
+  width: 0;
+}
+
+.providerKeySaveButton {
+  flex: 0 0 auto;
+  border: 1px solid #2563eb;
+  border-radius: 8px;
+  background: #2563eb;
+  color: #fff;
+  padding: 7px 11px;
+  font: inherit;
+  font-size: 0.75rem;
+  cursor: pointer;
+}
+
+.providerKeySaveButton:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.providerKeySaveStatus {
+  min-width: 0;
+  color: #047857;
+  font-size: 0.72rem;
+  overflow-wrap: anywhere;
+}
+
+.dark .providerKeySaveStatus {
+  color: #6ee7b7;
 }
 
 .historyPanel {
@@ -512,6 +657,21 @@
   text-transform: uppercase;
   opacity: 0.7;
   margin-bottom: 8px;
+}
+
+.partialProviderWarning {
+  margin-top: 12px;
+  border-left: 3px solid #d97706;
+  padding: 7px 10px;
+  background: rgba(245, 158, 11, 0.1);
+  color: #92400e;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.dark .partialProviderWarning {
+  color: #fcd34d;
 }
 
 .messageContent,
