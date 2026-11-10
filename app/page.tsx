@@ -86,6 +86,19 @@ const SETTINGS_KEY = "consensus-ai-settings";
 const PROFILES_KEY = "consensus-ai-profiles";
 const EMPTY_CHAT: ChatTurn[] = [];
 
+let guestSessionPromise: ReturnType<typeof supabase.auth.signInAnonymously> | null = null;
+
+async function ensureBrowserSession() {
+  const { data } = await supabase.auth.getSession();
+  if (data.session) return data.session;
+  guestSessionPromise ??= supabase.auth.signInAnonymously();
+  try {
+    const result = await guestSessionPromise;
+    if (result.error || !result.data.session) throw new Error("Guest access is unavailable. Please try again shortly or sign in.");
+    return result.data.session;
+  } finally { guestSessionPromise = null; }
+}
+
 async function authenticatedFetch(path: string, init: RequestInit = {}): Promise<Response> {
   const { data } = await supabase.auth.getSession();
   const accessToken = data.session?.access_token;
@@ -216,6 +229,11 @@ function ConsensusDetails({
 }) {
   const [showClaims, setShowClaims] = useState(false);
 
+  if (result.responses.length === 1) {
+    return <p className={styles.settingsNote}>Answered by {result.responses[0].provider} · Single-model answer</p>;
+  }
+
+
   return (
     <div className={styles.consensusDetailsWrap}>
       <details className={styles.consensusDetails} open={defaultOpen}>
@@ -329,6 +347,9 @@ export default function Home() {
   const [profileName, setProfileName] = useState("Default");
   const [profileNameError, setProfileNameError] = useState("");
   const [profilesLoaded, setProfilesLoaded] = useState(false);
+  const [isGuest, setIsGuest] = useState(true);
+  const [showAccountForm, setShowAccountForm] = useState(false);
+  const [guestError, setGuestError] = useState("");
   const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
   const [authChecked, setAuthChecked] = useState(false);
@@ -347,6 +368,14 @@ export default function Home() {
   useEffect(() => {
     let active = true;
     async function loadAccount() {
+      try { await ensureBrowserSession(); }
+      catch (guestFailure) {
+        if (active) {
+          setGuestError(guestFailure instanceof Error ? guestFailure.message : "Guest access is unavailable.");
+          setAuthChecked(true);
+        }
+        return;
+      }
       const { data } = await supabase.auth.getUser();
       if (!active) return;
       if (!data.user) {
@@ -367,7 +396,9 @@ export default function Home() {
         setAuthChecked(true);
         return;
       }
-      setUserEmail(data.user.email ?? "");
+      setGuestError("");
+      setIsGuest(data.user.is_anonymous === true);
+      setUserEmail(data.user.is_anonymous ? "" : data.user.email ?? "");
       setUserId(data.user.id);
       let remoteProfiles: SettingsProfile[] = [];
       try {
@@ -427,9 +458,10 @@ export default function Home() {
     const { data: listener } = supabase.auth.onAuthStateChange((_event, session) => {
       if (session?.user) {
         setAuthChecked(false);
-        setUserEmail(session.user.email ?? "");
+        setIsGuest(session.user.is_anonymous === true);
+        setUserEmail(session.user.is_anonymous ? "" : session.user.email ?? "");
         setUserId(session.user.id);
-        loadAccount();
+        window.setTimeout(() => { if (active) void loadAccount(); }, 0);
       } else {
         setUserEmail("");
         setUserId("");
@@ -444,7 +476,7 @@ export default function Home() {
 
   useEffect(() => {
     if (!profilesLoaded || !authChecked) return;
-    if (!userEmail) {
+    if (!userId) {
       window.localStorage.removeItem(PROFILES_KEY);
       window.localStorage.removeItem(SETTINGS_KEY);
       return;
@@ -467,10 +499,10 @@ export default function Home() {
         }
       }).catch(() => setProfileSyncError("Profile save error. Check your connection."));
     }
-  }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail, authChecked]);
+  }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userId, authChecked]);
 
   useEffect(() => {
-    if (authChecked && userEmail && sessions.length) {
+    if (authChecked && userId && sessions.length) {
       window.localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions));
       if (userId) {
         supabase.from("chat_sessions").upsert(sessions.map((session) => ({
@@ -611,7 +643,7 @@ export default function Home() {
       setUsageSummary((current) => current && payload.usage
         ? { ...current, creditsRemaining: payload.usage.creditsRemaining, creditsUsed: current.includedCredits - payload.usage.creditsRemaining }
         : current);
-      setStatusText(payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
+      setStatusText(payload.responses.length === 1 ? `Answer ready from ${payload.responses[0].provider}.` : payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
       setSessions((current) => current.map((session) => {
         if (session.id !== sessionId) return session;
         const currentChat = session.chat;
@@ -642,7 +674,7 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (!userId) { setAuthMode("signup"); setShowSettings(true); return; }
+    if (!userId) { setError(guestError || "Preparing your free session. Please try again in a moment."); return; }
     const trimmed = input.trim();
     if ((!trimmed && !pastedImages.length) || isLoading || !activeSession) return;
 
@@ -709,6 +741,7 @@ export default function Home() {
   }
 
   async function startCheckout() {
+    if (isGuest) { setShowAccountForm(true); setAuthMode("signup"); setShowSettings(true); return; }
     if (billingBusy) return;
     setBillingBusy(true);
     setProfileSyncError("");
@@ -779,7 +812,7 @@ export default function Home() {
       if (result.error) setAuthError(result.error.message);
       else {
         setAuthPassword("");
-        if (result.data.session) setShowSettings(false);
+        if (result.data.session && !result.data.session.user.is_anonymous) { setShowSettings(false); setShowAccountForm(false); }
         else setAuthNotice("Check your email to confirm your account, then sign in to start chatting.");
       }
     } catch {
@@ -806,6 +839,8 @@ export default function Home() {
     setActiveChatId(signedOutChat.id);
     setUserEmail("");
     setUserId("");
+    setIsGuest(true);
+    await ensureBrowserSession().catch(() => setGuestError("Guest access is unavailable. Please sign in or try again later."));
   }
 
   function deleteChat(session: ChatSession) {
@@ -913,16 +948,16 @@ export default function Home() {
               </div>
             </section>
           )}
-          <p className={styles.settingsNote}>{userEmail ? "Your preferences and chats sync across browsers." : "Start free with 10 requests per month. No credit card required."}</p>
+          <p className={styles.settingsNote}>{userEmail ? "Your preferences and chats sync across browsers." : "10 free requests per month. No signup or credit card required."}</p>
           {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
           {userEmail ? (
             <div className={styles.accountRow}>
               <span>{userEmail}</span>
               <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
             </div>
-          ) : (
+          ) : showAccountForm ? (
             <form className={styles.authForm} onSubmit={handleAuth}>
-              <p className={styles.settingsNote}>Create an account to ask your first question, or sign in to continue.</p>
+              <p className={styles.settingsNote}>An account is only needed for Premium or to access your chats on another device.</p>
               <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
               <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
               {authError && <p className={styles.authError}>{authError}</p>}
@@ -931,7 +966,10 @@ export default function Home() {
               <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
                 {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
               </button>
+              <button type="button" className={styles.authSwitch} onClick={() => setShowAccountForm(false)}>Continue as guest</button>
             </form>
+          ) : (
+            <div className={styles.accountRow}><span>Browsing as a guest</span><button type="button" className={styles.profileButton} onClick={() => { setShowAccountForm(true); setAuthMode("login"); }}>Sign in</button></div>
           )}
           {userId && <details className={styles.advancedSettings}>
             <summary>Customize models and preferences</summary>
@@ -985,7 +1023,7 @@ export default function Home() {
             />
             Open consensus dropdowns by default
           </label>
-          <p className={styles.settingsNote}>Choose at least two providers. We have selected defaults so you can start right away.</p>
+          <p className={styles.settingsNote}>Choose one provider for a normal chat, or multiple providers to compare answers.</p>
           {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
             const modelIds = modelCatalog[provider];
             return (
@@ -994,7 +1032,7 @@ export default function Home() {
                 <input
                   type="checkbox"
                   checked={settings[provider].enabled}
-                  disabled={settings[provider].enabled && Object.values(settings).filter((value) => typeof value === "object" && value.enabled).length <= 2}
+                  disabled={settings[provider].enabled && Object.values(settings).filter((value) => typeof value === "object" && value.enabled).length <= 1}
                   onChange={(event) => setSettings((current) => ({
                     ...current,
                     [provider]: { ...current[provider], enabled: event.target.checked },
@@ -1030,7 +1068,8 @@ export default function Home() {
             <div className={styles.emptyState}>
               <h2>Ask once. Compare answers.</h2>
               <p>Get answers from multiple AI models and see where they agree.</p>
-              {!userId && <><p>Start with 10 free requests per month. No credit card required.</p><button type="button" className={styles.profileButton} onClick={() => { setAuthMode("signup"); setShowSettings(true); }}>Get started free</button><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowSettings(true); }}>Already have an account? Sign in</button></>}
+              {isGuest && <><p>10 free requests per month. No signup or credit card required.</p><p>Type your question below to get started.</p><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowAccountForm(true); setShowSettings(true); }}>Already have an account? Sign in</button></>}
+              {guestError && <p className={styles.authError} role="alert">{guestError}</p>}
             </div>
           )}
 
@@ -1129,8 +1168,8 @@ export default function Home() {
               ))}
             </div>
           )}
-          <button type="submit" className={styles.submitButton} disabled={isLoading || (!input.trim() && !pastedImages.length)}>
-            {isLoading ? "Thinking…" : "Send"}
+          <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || (!input.trim() && !pastedImages.length)}>
+            {!authChecked ? "Getting ready…" : isLoading ? "Thinking…" : "Send"}
           </button>
         </form>
       </section>

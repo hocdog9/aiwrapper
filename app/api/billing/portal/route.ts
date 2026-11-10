@@ -4,7 +4,7 @@ import { authenticateRequest } from "@/lib/server/auth";
 
 export async function POST(request: NextRequest) {
   const context = await authenticateRequest(request);
-  if (!context) return NextResponse.json({ error: "Sign in to manage billing." }, { status: 401 });
+  if (!context || context.user.is_anonymous) return NextResponse.json({ error: "Sign in to manage billing." }, { status: 401 });
   if (!context.adminClient) return NextResponse.json({ error: "Billing storage is not configured on the server." }, { status: 503 });
   const secretKey = process.env.BILLING_SECRET_KEY;
   const baseUrl = process.env.APP_URL;

@@ -15,7 +15,7 @@ function appUrl(): string | null {
 
 export async function POST(request: NextRequest) {
   const context = await authenticateRequest(request);
-  if (!context) return NextResponse.json({ error: "Sign in before choosing a plan." }, { status: 401 });
+  if (!context || context.user.is_anonymous) return NextResponse.json({ error: "Sign in before choosing a plan." }, { status: 401 });
   if (!context.adminClient) return NextResponse.json({ error: "Billing storage is not configured on the server." }, { status: 503 });
   const body = await request.json().catch(() => ({}));
   if (body.planId !== "premium") return NextResponse.json({ error: "Choose Premium to upgrade." }, { status: 400 });

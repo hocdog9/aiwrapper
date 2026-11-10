@@ -2,6 +2,7 @@ import "server-only";
 
 import { NextRequest, NextResponse } from "next/server";
 import { buildConsensusClaims } from "@/lib/consensus";
+import { enforceGuestLimits } from "./guest-limits";
 import { authenticateRequest } from "./auth";
 import { getBillingMode, resolveProviderCredential, type BillingMode } from "./credentials";
 import { estimateProviderCostMicros, type ProviderName, type TokenUsage } from "./model-pricing";
@@ -18,8 +19,7 @@ const MAX_MESSAGES = 12;
 const MAX_PROMPT_CHARACTERS = 24_000;
 const MAX_IMAGES = 4;
 const MAX_TOTAL_IMAGE_BYTES = 3 * 1024 * 1024;
-const configuredMinimum = Number.parseInt(process.env.MIN_SUCCESSFUL_PROVIDERS || "2", 10);
-const MIN_SUCCESSFUL_PROVIDERS = Number.isFinite(configuredMinimum) ? Math.min(PROVIDERS.length, Math.max(2, configuredMinimum)) : 2;
+
 
 type ConsensusPayload = {
   consensus: string;
@@ -105,7 +105,18 @@ function formatConsensusText(claims: Array<{ claim: string; supportCount: number
   return `The strongest shared pattern is:\n\n${claims.slice(0, 3).map((claim) => `${claim.supportCount}/${claim.totalModels} agree — ${claim.claim}`).join("\n\n")}`;
 }
 
-function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {
+export function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {
+  if (responses.length === 1) {
+    return {
+      consensus: responses[0].content,
+      agreementScore: null,
+      summary: "Single-model answer",
+      agreements: [], disagreements: [], claims: [],
+      confidenceNote: "One provider answered. No model comparison was performed.",
+      responses, errors, requestId,
+      usage: { creditCharged: 1, creditsRemaining },
+    };
+  }
   const claims = buildConsensusClaims(responses);
   const agreementScore = claims.length
     ? Math.min(100, Math.max(0, Math.round((claims.reduce((sum, item) => sum + item.supportCount, 0) / (claims.length * responses.length)) * 100)))
@@ -175,7 +186,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
 
     const requestSettings = body.settings && typeof body.settings === "object" ? body.settings as RequestSettings : {};
     const selectedProviders = PROVIDERS.filter((provider) => requestSettings[provider]?.enabled !== false);
-    if (selectedProviders.length < 2) return safeErrorResponse("Choose at least two providers in Settings.", 400);
+    if (selectedProviders.length === 0) return safeErrorResponse("Choose at least one provider in Settings.", 400);
 
     const billingMode = await getBillingMode(context);
     const modelAllowlist = await getModelAllowlist(context, billingMode);
@@ -187,6 +198,9 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         return safeErrorResponse(`${selectedModel} is not included in your plan. Choose a model available in Settings.`, 403);
       }
     }
+    const guestLimit = await enforceGuestLimits(request, context);
+    if (guestLimit === "limited") return safeErrorResponse("Free guest access has reached a temporary limit. Try again later, or sign in to continue with your account allowance.", 429);
+    if (guestLimit === "unavailable") return safeErrorResponse("Guest access is temporarily unavailable. Please try again later or sign in.", 503);
     const { data: reservation, error: reserveError } = await context.userClient.rpc("reserve_consensus_credit", { p_request_id: requestId });
     if (reserveError) {
       const mapped = mapDatabaseError(reserveError);
@@ -222,18 +236,18 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
 
     const successful = outcomes.filter((outcome): outcome is NonNullable<typeof outcome> => outcome !== null);
     const providerResponses = successful.map(({ provider, result }) => ({ provider, content: result.text }));
-    if (successful.length < MIN_SUCCESSFUL_PROVIDERS) {
+    if (successful.length === 0) {
       await context.userClient.rpc("fail_consensus_request", { p_request_id: requestId });
       reservedRequestId = null;
       return NextResponse.json({
-        error: `Only ${successful.length} provider(s) responded; at least ${MIN_SUCCESSFUL_PROVIDERS} are required. No credit was used.`,
+        error: "No providers could answer. No credit was used. Please try again.",
         errors,
         requestId,
       }, { status: 502 });
     }
 
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
-    for (const candidate of successful) {
+    for (const candidate of successful.length > 1 ? successful : []) {
       try {
         const synthesis = await invokeProvider({
           provider: candidate.provider,

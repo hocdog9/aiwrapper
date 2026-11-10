@@ -37,7 +37,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Free and Premium setup
 
-Users sign up and start chatting with app-provided model access. Free includes 10 requests per month; Premium includes 500. Each successful request costs one request, including synthesis. At least two providers must respond; failed requests are refunded. Users never configure API keys or billing modes.
+Visitors start chatting without signup using a persistent Supabase anonymous session stored in their browser. An email account is only required for Premium or cross-device access. Free includes 10 requests per month; Premium includes 500. Each successful request costs one request, including synthesis. One successful provider response is enough. Single-provider answers are shown directly without a consensus score or synthesis call; requests are refunded if no provider succeeds. Users never configure API keys or billing modes.
 
 1. Copy `.env.example` to `.env.local`. Configure the public Supabase URL and publishable key, and server-only `SUPABASE_SERVICE_ROLE_KEY`.
 2. Set server-only `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`, and configure available model IDs. Default selections use GPT and Gemini. Keys are never sent to the browser.
@@ -53,6 +53,19 @@ Stripe checkout displays the configured price before payment. Webhooks grant Pre
 
 ### Models and usage
 
-`plan_catalog.allowed_models` maps provider names (`GPT`, `Gemini`, `Claude`) to model-ID arrays. Empty arrays fall back to the configured server models. Users choose one model per provider and at least two providers. Optional `MODEL_PRICING_JSON` configures token cost estimates; without rates, usage is recorded but cost is unavailable.
+`plan_catalog.allowed_models` maps provider names (`GPT`, `Gemini`, `Claude`) to model-ID arrays. Empty arrays fall back to the configured server models. Users choose one model per provider and one or more providers. `MIN_SUCCESSFUL_PROVIDERS` is no longer used. Optional `MODEL_PRICING_JSON` configures token cost estimates; without rates, usage is recorded but cost is unavailable.
 
 Keep `.env.local` and server credentials out of Git. The historical encrypted-key helpers and tables are unused by the application; `BYOK_ENCRYPTION_KEY` is no longer required.
+
+### Guest access (no signup)
+
+1. In Supabase Authentication settings, enable **Anonymous Sign-Ins**. Supabase creates an internal anonymous identity without asking the visitor for email or password. [Supabase guide](https://supabase.com/docs/guides/auth/auth-anonymous).
+2. Run `supabase/guest_access_migration.sql` after `free_premium_migration.sql`.
+3. Generate `GUEST_LIMIT_SECRET` with `openssl rand -hex 32` and set the same value locally and in Vercel. Keep it server-only and stable; changing it resets network identities.
+4. Deploy. Free visitors can type and send directly. Browser storage preserves their session and database-enforced 10-request allowance. Clearing browser data loses access to guest chats.
+
+Additional guest limits are atomic in Postgres: 5 attempts per network per minute, 30 per network per UTC calendar month, and 100 total guest attempts per UTC day for this proof of concept. These protective limits count attempts, including failed or repeated requests; the normal plan allowance still refunds failures. Adjust the constants in `guest_access_migration.sql` deliberately as traffic grows. Shared Wi-Fi can hit a shared limit. IPv6 addresses are grouped by /64. Network identifiers are HMAC hashes; raw IP addresses are not stored in the limiter.
+
+Production network identification trusts Vercel's `x-vercel-forwarded-for` header. Local development uses one shared localhost bucket. Other production hosts fail closed until a trusted proxy integration is implemented. Missing limiter configuration or database errors also fail closed for guests. Signed-in permanent accounts retain their normal plan limits.
+
+This reduces casual cookie/storage resets, not determined abuse across networks or accounts. Supabase's anonymous signup rate limits still apply. For a public launch, enable CAPTCHA/Turnstile for anonymous sign-ins and integrate the challenge token before calling `signInAnonymously`; the current UI does not implement that challenge. Guest identities also consume Auth storage and need a retention/cleanup policy. These controls do not establish one allowance per real person.
