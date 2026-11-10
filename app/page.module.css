@@ -1183,3 +1183,14 @@
     grid-template-columns: 1fr;
   }
 }
+
+.advancedSettings {
+  border-top: 1px solid #94a3b840;
+  padding-top: 16px;
+}
+
+.advancedSettings summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: 8px 0 16px;
+}

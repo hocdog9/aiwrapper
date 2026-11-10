@@ -56,13 +56,10 @@ type ChatSession = {
 
 type ProviderName = "GPT" | "Gemini" | "Claude";
 type ModelCatalog = Record<ProviderName, string[]>;
-type ProviderKeyDrafts = Record<ProviderName, string>;
-type ProviderKeyStatus = Record<ProviderName, { configured: boolean; masked: string | null; validatedAt: string | null }>;
-type BillingMode = "managed" | "byok";
 type UsageSummary = {
   plan: string;
-  billingMode: BillingMode;
   subscriptionStatus: string;
+  hasBillingAccount: boolean;
   periodEnd: string;
   includedCredits: number;
   creditsUsed: number;
@@ -123,7 +120,6 @@ const fallbackModels: ModelCatalog = {
   Gemini: ["gemini-3.8-flash"],
   Claude: ["claude-3-5-sonnet-20241022"],
 };
-const emptyProviderKeyDrafts: ProviderKeyDrafts = { GPT: "", Gemini: "", Claude: "" };
 
 function createChatSession(): ChatSession {
   return {
@@ -322,22 +318,16 @@ export default function Home() {
   const [isDark, setIsDark] = useState(true);
   const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
-  const [providerKeyDrafts, setProviderKeyDrafts] = useState<ProviderKeyDrafts>(emptyProviderKeyDrafts);
-  const [providerKeyStatus, setProviderKeyStatus] = useState<ProviderKeyStatus>({
-    GPT: { configured: false, masked: null, validatedAt: null },
-    Gemini: { configured: false, masked: null, validatedAt: null },
-    Claude: { configured: false, masked: null, validatedAt: null },
-  });
-  const [billingMode, setBillingMode] = useState<BillingMode>("managed");
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
-  const [modelRefreshCounter, setModelRefreshCounter] = useState(0);
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [authBusy, setAuthBusy] = useState(false);
+  const [authNotice, setAuthNotice] = useState("");
   const [modelCatalog, setModelCatalog] = useState<ModelCatalog>(fallbackModels);
   const [modelDiscoveryErrors, setModelDiscoveryErrors] = useState<Partial<Record<ProviderName, string>>>({});
   const [profiles, setProfiles] = useState<SettingsProfile[]>([]);
   const [activeProfileId, setActiveProfileId] = useState("");
   const [profileName, setProfileName] = useState("Default");
   const [profileNameError, setProfileNameError] = useState("");
-  const [keySaveStatus, setKeySaveStatus] = useState<Partial<Record<ProviderName, string>>>({});
   const [profilesLoaded, setProfilesLoaded] = useState(false);
   const [userEmail, setUserEmail] = useState("");
   const [userId, setUserId] = useState("");
@@ -349,22 +339,10 @@ export default function Home() {
   const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const lastRequestRef = useRef<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string } | null>(null);
+  const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const chat = activeSession?.chat ?? EMPTY_CHAT;
   const result = activeSession?.result ?? null;
-
-  useEffect(() => {
-    if (!authChecked || userEmail) return;
-    window.localStorage.removeItem(PROFILES_KEY);
-    window.localStorage.removeItem(SETTINGS_KEY);
-    const defaultProfile = createSettingsProfile("Default");
-    setProfiles([defaultProfile]);
-    setActiveProfileId(defaultProfile.id);
-    setProfileName(defaultProfile.name);
-    setSettings(defaultProfile.settings);
-    setProfilesLoaded(true);
-  }, [authChecked, userEmail]);
 
   useEffect(() => {
     let active = true;
@@ -372,6 +350,18 @@ export default function Home() {
       const { data } = await supabase.auth.getUser();
       if (!active) return;
       if (!data.user) {
+        window.localStorage.removeItem(PROFILES_KEY);
+        window.localStorage.removeItem(SETTINGS_KEY);
+        window.localStorage.removeItem(CHAT_HISTORY_KEY);
+        const defaultProfile = createSettingsProfile("Default");
+        setProfiles([defaultProfile]);
+        setActiveProfileId(defaultProfile.id);
+        setProfileName(defaultProfile.name);
+        setSettings(defaultProfile.settings);
+        setProfilesLoaded(true);
+        const firstSession = createChatSession();
+        setSessions([firstSession]);
+        setActiveChatId(firstSession.id);
         setUserEmail("");
         setUserId("");
         setAuthChecked(true);
@@ -407,18 +397,10 @@ export default function Home() {
         setProfileName(defaultProfile.name);
         setSettings(defaultProfile.settings);
       }
-      const [keysResponse, usageResponse] = await Promise.all([
-        authenticatedFetch("/api/settings/provider-keys"),
-        authenticatedFetch("/api/usage"),
-      ]);
-      if (keysResponse.ok) {
-        const keysPayload = await keysResponse.json() as { credentials?: ProviderKeyStatus };
-        if (keysPayload.credentials) setProviderKeyStatus(keysPayload.credentials);
-      }
+      const usageResponse = await authenticatedFetch("/api/usage");
       if (usageResponse.ok) {
         const usagePayload = await usageResponse.json() as UsageSummary;
         setUsageSummary(usagePayload);
-        setBillingMode(usagePayload.billingMode);
       } else {
         const usagePayload = await usageResponse.json() as { error?: string };
         setProfileSyncError(usagePayload.error ?? "Billing account unavailable.");
@@ -433,6 +415,10 @@ export default function Home() {
         const nextSessions = remoteChats as ChatSession[];
         setSessions(nextSessions.map(hydrateSessionResults));
         setActiveChatId(nextSessions[0].id);
+      } else {
+        const firstSession = createChatSession();
+        setSessions([firstSession]);
+        setActiveChatId(firstSession.id);
       }
       setProfilesLoaded(true);
       setAuthChecked(true);
@@ -466,9 +452,6 @@ export default function Home() {
     const updatedProfiles = profiles.map((profile) => profile.id === activeProfileId
       ? { ...profile, name: profileName, settings }
       : profile);
-    if (JSON.stringify(updatedProfiles) !== JSON.stringify(profiles)) {
-      setProfiles(updatedProfiles);
-    }
     window.localStorage.setItem(PROFILES_KEY, JSON.stringify(updatedProfiles));
     if (activeProfileId) {
       authenticatedFetch("/api/settings/profiles", {
@@ -480,39 +463,11 @@ export default function Home() {
           setProfileSyncError(payload.error ?? "Profile save error.");
         } else {
           setProfileSyncError("");
+          if (JSON.stringify(updatedProfiles) !== JSON.stringify(profiles)) setProfiles(updatedProfiles);
         }
       }).catch(() => setProfileSyncError("Profile save error. Check your connection."));
     }
   }, [settings, profileName, activeProfileId, profilesLoaded, profiles, userEmail, authChecked]);
-
-  useEffect(() => {
-    if (!authChecked) return;
-    if (!userEmail) {
-      window.localStorage.removeItem(CHAT_HISTORY_KEY);
-      const firstSession = createChatSession();
-      setSessions([firstSession]);
-      setActiveChatId(firstSession.id);
-      return;
-    }
-
-    const savedHistory = window.localStorage.getItem(CHAT_HISTORY_KEY);
-    if (savedHistory) {
-      try {
-        const parsed = JSON.parse(savedHistory) as ChatSession[];
-        if (parsed.length) {
-          const hydrated = parsed.map(hydrateSessionResults);
-          setSessions(hydrated);
-          setActiveChatId(hydrated[0].id);
-          return;
-        }
-      } catch {
-        window.localStorage.removeItem(CHAT_HISTORY_KEY);
-      }
-    }
-    const firstSession = createChatSession();
-    setSessions([firstSession]);
-    setActiveChatId(firstSession.id);
-  }, [authChecked, userEmail]);
 
   useEffect(() => {
     if (authChecked && userEmail && sessions.length) {
@@ -536,7 +491,8 @@ export default function Home() {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
     const prefersDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
     const nextTheme = storedTheme ? storedTheme === "dark" : prefersDark;
-    setIsDark(nextTheme);
+    const frame = window.requestAnimationFrame(() => setIsDark(nextTheme));
+    return () => window.cancelAnimationFrame(frame);
   }, []);
 
   useEffect(() => {
@@ -550,7 +506,7 @@ export default function Home() {
   }, [chat, result, isLoading]);
 
   useEffect(() => {
-    if (!showSettings || !userId) return;
+    if (!userId) return;
 
     const controller = new AbortController();
     const timer = window.setTimeout(async () => {
@@ -567,6 +523,7 @@ export default function Home() {
           errors?: Partial<Record<ProviderName, string>>;
         };
         if (controller.signal.aborted) return;
+        if (!response.ok) throw new Error("Models unavailable");
         if (payload.models) {
           setModelCatalog((current) => ({
             GPT: payload.models?.GPT.length ? payload.models.GPT : current.GPT,
@@ -588,9 +545,9 @@ export default function Home() {
       } catch {
         if (!controller.signal.aborted) {
           setModelDiscoveryErrors({
-            GPT: "Could not refresh models. Check your connection and provider keys.",
-            Gemini: "Could not refresh models. Check your connection and provider keys.",
-            Claude: "Could not refresh models. Check your connection and provider keys.",
+            GPT: "Could not refresh models. Please try again shortly.",
+            Gemini: "Could not refresh models. Please try again shortly.",
+            Claude: "Could not refresh models. Please try again shortly.",
           });
         }
       }
@@ -600,7 +557,28 @@ export default function Home() {
       window.clearTimeout(timer);
       controller.abort();
     };
-  }, [showSettings, userId, modelRefreshCounter]);
+  }, [userId, showSettings]);
+
+  useEffect(() => {
+    if (!userId || new URLSearchParams(window.location.search).get("billing") !== "return") return;
+    const openTimer = window.setTimeout(() => setShowSettings(true), 0);
+    let attempts = 0;
+    const timer = window.setInterval(async () => {
+      attempts += 1;
+      if (attempts >= 10) window.clearInterval(timer);
+      try {
+        const response = await authenticatedFetch("/api/usage");
+        if (!response.ok) return;
+        const usage = await response.json() as UsageSummary;
+        setUsageSummary(usage);
+        if (usage.plan === "premium") {
+          window.clearInterval(timer);
+          window.history.replaceState(null, "", window.location.pathname);
+        }
+      } catch { /* The normal usage refresh can retry later. */ }
+    }, 2000);
+    return () => { window.clearTimeout(openTimer); window.clearInterval(timer); };
+  }, [userId]);
 
   async function refreshUsageSummary() {
     try {
@@ -608,7 +586,6 @@ export default function Home() {
       if (!response.ok) return;
       const usage = await response.json() as UsageSummary;
       setUsageSummary(usage);
-      setBillingMode(usage.billingMode);
     } catch {
       setProfileSyncError("Could not refresh plan usage.");
     }
@@ -665,13 +642,14 @@ export default function Home() {
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (!userId) { setAuthMode("signup"); setShowSettings(true); return; }
     const trimmed = input.trim();
     if ((!trimmed && !pastedImages.length) || isLoading || !activeSession) return;
 
     const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
     const requestMessages = [...chat, userTurn];
     const requestId = crypto.randomUUID();
-    lastRequestRef.current = { messages: requestMessages, userTurn, sessionId: activeSession.id, requestId };
+    setLastRequest({ messages: requestMessages, userTurn, sessionId: activeSession.id, requestId });
 
     setSessions((current) => current.map((session) => session.id === activeSession.id
       ? {
@@ -690,10 +668,9 @@ export default function Home() {
   }
 
   async function retryLastRequest() {
-    const lastRequest = lastRequestRef.current;
     if (!lastRequest || isLoading) return;
     const requestId = crypto.randomUUID();
-    lastRequestRef.current = { ...lastRequest, requestId };
+    setLastRequest({ ...lastRequest, requestId });
     setError(null);
     setIsLoading(true);
     setStatusText("Trying again…");
@@ -720,7 +697,6 @@ export default function Home() {
     setProfileName(profile.name);
     setSettings(profile.settings);
     setProfileNameError("");
-    setKeySaveStatus({});
   }
 
   function saveNewProfile() {
@@ -732,87 +708,29 @@ export default function Home() {
     setProfileNameError("");
   }
 
-  async function saveProviderKey(provider: ProviderName) {
-    if (!userId || !activeProfileId) {
-      setKeySaveStatus((current) => ({ ...current, [provider]: "Sign in to save keys to your profile." }));
-      return;
-    }
-    const key = providerKeyDrafts[provider].trim();
-    if (!key) {
-      setKeySaveStatus((current) => ({ ...current, [provider]: "Enter a key to save." }));
-      return;
-    }
-
-    try {
-      const response = await authenticatedFetch("/api/settings/provider-keys", {
-        method: "PUT",
-        body: JSON.stringify({ provider, key }),
-      });
-      const payload = await response.json() as { masked?: string; error?: string };
-      if (!response.ok) throw new Error(payload.error ?? `Could not save ${provider} key.`);
-      setProviderKeyDrafts((current) => ({ ...current, [provider]: "" }));
-      setProviderKeyStatus((current) => ({
-        ...current,
-        [provider]: { configured: true, masked: payload.masked ?? "••••", validatedAt: new Date().toISOString() },
-      }));
-      setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key validated and saved encrypted.` }));
-      setModelRefreshCounter((current) => current + 1);
-    } catch (saveError) {
-      setKeySaveStatus((current) => ({ ...current, [provider]: saveError instanceof Error ? saveError.message : `Could not save ${provider} key.` }));
-    }
-  }
-
-  async function deleteProviderKey(provider: ProviderName) {
-    try {
-      const response = await authenticatedFetch("/api/settings/provider-keys", {
-        method: "DELETE",
-        body: JSON.stringify({ provider }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? `Could not delete ${provider} key.`);
-      setProviderKeyStatus((current) => ({
-        ...current,
-        [provider]: { configured: false, masked: null, validatedAt: null },
-      }));
-      setKeySaveStatus((current) => ({ ...current, [provider]: `${provider} key deleted.` }));
-      setModelRefreshCounter((current) => current + 1);
-    } catch (deleteError) {
-      setKeySaveStatus((current) => ({ ...current, [provider]: deleteError instanceof Error ? deleteError.message : `Could not delete ${provider} key.` }));
-    }
-  }
-
-  async function changeBillingMode(mode: BillingMode) {
-    try {
-      const response = await authenticatedFetch("/api/settings/billing-mode", {
-        method: "PUT",
-        body: JSON.stringify({ mode }),
-      });
-      const payload = await response.json() as { error?: string };
-      if (!response.ok) throw new Error(payload.error ?? "Could not change billing mode.");
-      setBillingMode(mode);
-      setUsageSummary((current) => current ? { ...current, billingMode: mode } : current);
-      setKeySaveStatus({});
-      setModelRefreshCounter((current) => current + 1);
-    } catch (modeError) {
-      setProfileSyncError(modeError instanceof Error ? modeError.message : "Could not change billing mode.");
-    }
-  }
-
-  async function startCheckout(planId: "basic" | "plus") {
+  async function startCheckout() {
+    if (billingBusy) return;
+    setBillingBusy(true);
+    setProfileSyncError("");
     try {
       const response = await authenticatedFetch("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ planId }),
+        body: JSON.stringify({ planId: "premium" }),
       });
       const payload = await response.json() as { url?: string; error?: string };
       if (!response.ok || !payload.url) throw new Error(payload.error ?? "Checkout is unavailable.");
       window.location.assign(payload.url);
     } catch (checkoutError) {
       setProfileSyncError(checkoutError instanceof Error ? checkoutError.message : "Checkout is unavailable.");
+    } finally {
+      setBillingBusy(false);
     }
   }
 
   async function openBillingPortal() {
+    if (billingBusy) return;
+    setBillingBusy(true);
+    setProfileSyncError("");
     try {
       const response = await authenticatedFetch("/api/billing/portal", { method: "POST", body: "{}" });
       const payload = await response.json() as { url?: string; error?: string };
@@ -820,6 +738,8 @@ export default function Home() {
       window.location.assign(payload.url);
     } catch (portalError) {
       setProfileSyncError(portalError instanceof Error ? portalError.message : "Billing portal is unavailable.");
+    } finally {
+      setBillingBusy(false);
     }
   }
 
@@ -848,14 +768,24 @@ export default function Home() {
 
   async function handleAuth(event: FormEvent) {
     event.preventDefault();
+    if (authBusy) return;
+    setAuthBusy(true);
     setAuthError("");
-    const result = authMode === "login"
-      ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
-      : await supabase.auth.signUp({ email: authEmail, password: authPassword });
-    if (result.error) setAuthError(result.error.message);
-    else {
-      setAuthEmail("");
-      setAuthPassword("");
+    setAuthNotice("");
+    try {
+      const result = authMode === "login"
+        ? await supabase.auth.signInWithPassword({ email: authEmail, password: authPassword })
+        : await supabase.auth.signUp({ email: authEmail, password: authPassword });
+      if (result.error) setAuthError(result.error.message);
+      else {
+        setAuthPassword("");
+        if (result.data.session) setShowSettings(false);
+        else setAuthNotice("Check your email to confirm your account, then sign in to start chatting.");
+      }
+    } catch {
+      setAuthError("Could not connect. Please try again.");
+    } finally {
+      setAuthBusy(false);
     }
   }
 
@@ -868,14 +798,7 @@ export default function Home() {
     setActiveProfileId(signedOutProfile.id);
     setProfileName(signedOutProfile.name);
     setSettings(signedOutProfile.settings);
-    setProviderKeyDrafts(emptyProviderKeyDrafts);
-    setProviderKeyStatus({
-      GPT: { configured: false, masked: null, validatedAt: null },
-      Gemini: { configured: false, masked: null, validatedAt: null },
-      Claude: { configured: false, masked: null, validatedAt: null },
-    });
     setUsageSummary(null);
-    setBillingMode("managed");
     setProfileSyncError("");
     window.localStorage.removeItem(CHAT_HISTORY_KEY);
     const signedOutChat = createChatSession();
@@ -936,6 +859,7 @@ export default function Home() {
         <div className={styles.sidebarCard}>
           <p className={styles.mutedLabel}>Current status</p>
           <p className={styles.statusLine}>{statusText}</p>
+          {usageSummary && userId && <button type="button" className={styles.authSwitch} onClick={() => setShowSettings(true)}>{usageSummary.plan === "free" ? "Free" : "Premium"} · {usageSummary.creditsRemaining} requests left</button>}
         </div>
         <div className={styles.historyPanel}>
           <div className={styles.historyHeader}>
@@ -970,16 +894,51 @@ export default function Home() {
             <div className={styles.settingsHeader}>
               <div>
                 <p className={styles.mutedLabel}>Settings</p>
-                <h2 id="settings-title">Model settings</h2>
+                <h2 id="settings-title">{userId ? "Settings" : "Welcome to Consensus"}</h2>
               </div>
               <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">
                 ×
               </button>
             </div>
+            <div className={styles.settingsContent}>
+          {usageSummary && userId && (
+            <section className={styles.usageCard} aria-label="Your plan">
+              <div><strong>{usageSummary.plan === "free" ? "Free" : "Premium"}</strong><span>{usageSummary.creditsRemaining} of {usageSummary.includedCredits} requests remaining</span></div>
+              <p>Allowance resets {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
+              {usageSummary.plan === "free" && <p>Need more? Premium includes 500 requests per month.</p>}
+              {usageSummary.plan !== "free" && !["active", "trialing"].includes(usageSummary.subscriptionStatus) && <p>Update your payment details to resume chatting.</p>}
+              <div className={styles.billingActions}>
+                {usageSummary.plan === "free" && <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={startCheckout}>{billingBusy ? "Opening…" : "Upgrade to Premium"}</button>}
+                {usageSummary.hasBillingAccount && <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={openBillingPortal}>{billingBusy ? "Opening…" : "Manage subscription"}</button>}
+              </div>
+            </section>
+          )}
+          <p className={styles.settingsNote}>{userEmail ? "Your preferences and chats sync across browsers." : "Start free with 10 requests per month. No credit card required."}</p>
+          {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
+          {userEmail ? (
+            <div className={styles.accountRow}>
+              <span>{userEmail}</span>
+              <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
+            </div>
+          ) : (
+            <form className={styles.authForm} onSubmit={handleAuth}>
+              <p className={styles.settingsNote}>Create an account to ask your first question, or sign in to continue.</p>
+              <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
+              <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
+              {authError && <p className={styles.authError}>{authError}</p>}
+              {authNotice && <p role="status">{authNotice}</p>}
+              <button type="submit" className={styles.profileButton} disabled={authBusy}>{authBusy ? "Please wait…" : authMode === "login" ? "Sign in" : "Create free account"}</button>
+              <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
+                {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
+              </button>
+            </form>
+          )}
+          {userId && <details className={styles.advancedSettings}>
+            <summary>Customize models and preferences</summary>
+            <div className={styles.settingsContent}>
             <div className={styles.historyHeader}>
               <p className={styles.mutedLabel}>Profile and providers</p>
             </div>
-            <div className={styles.settingsContent}>
           <select
             className={styles.settingsInput}
             value={activeProfileId}
@@ -1026,49 +985,7 @@ export default function Home() {
             />
             Open consensus dropdowns by default
           </label>
-          {userId && (
-            <section className={styles.billingSettings} aria-labelledby="billing-mode-title">
-              <h3 id="billing-mode-title">Billing mode</h3>
-              <label className={styles.billingModeOption}>
-                <input type="radio" name="billing-mode" checked={billingMode === "managed"} onChange={() => changeBillingMode("managed")} />
-                <span><strong>Managed by Consensus</strong><small>No provider keys needed. Uses your plan allowance.</small></span>
-              </label>
-              <label className={styles.billingModeOption}>
-                <input type="radio" name="billing-mode" checked={billingMode === "byok"} onChange={() => changeBillingMode("byok")} />
-                <span><strong>Bring Your Own Keys</strong><small>Provider inference is billed to your provider accounts.</small></span>
-              </label>
-            </section>
-          )}
-          {usageSummary && userId && (
-            <section className={styles.usageCard} aria-label="Plan usage">
-              <div><strong>Plan: {usageSummary.plan}</strong><span>{usageSummary.creditsUsed} / {usageSummary.includedCredits} credits used</span></div>
-              <p>Renews {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
-              <div className={styles.billingActions}>
-                <button type="button" className={styles.profileButton} onClick={() => startCheckout("basic")}>Upgrade to Basic</button>
-                <button type="button" className={styles.profileButton} onClick={() => startCheckout("plus")}>Upgrade to Plus</button>
-                <button type="button" className={styles.profileButton} onClick={openBillingPortal}>Manage billing</button>
-              </div>
-            </section>
-          )}
-          <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers. BYOK secrets are encrypted on the server." : "Sign in to save provider keys and sync profiles."}</p>
-          {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
-          {userEmail ? (
-            <div className={styles.accountRow}>
-              <span>{userEmail}</span>
-              <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
-            </div>
-          ) : (
-            <form className={styles.authForm} onSubmit={handleAuth}>
-              <p className={styles.settingsNote}>Sign in to use these profiles on other browsers.</p>
-              <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
-              <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
-              {authError && <p className={styles.authError}>{authError}</p>}
-              <button type="submit" className={styles.profileButton}>{authMode === "login" ? "Sign in" : "Create account"}</button>
-              <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
-                {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
-              </button>
-            </form>
-          )}
+          <p className={styles.settingsNote}>Choose at least two providers. We have selected defaults so you can start right away.</p>
           {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
             const modelIds = modelCatalog[provider];
             return (
@@ -1077,6 +994,7 @@ export default function Home() {
                 <input
                   type="checkbox"
                   checked={settings[provider].enabled}
+                  disabled={settings[provider].enabled && Object.values(settings).filter((value) => typeof value === "object" && value.enabled).length <= 2}
                   onChange={(event) => setSettings((current) => ({
                     ...current,
                     [provider]: { ...current[provider], enabled: event.target.checked },
@@ -1096,37 +1014,11 @@ export default function Home() {
                 {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
               </select>
               {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
-              <div className={styles.providerKeySaveRow}>
-                <input
-                  className={styles.settingsInput}
-                  type="password"
-                  value={providerKeyDrafts[provider]}
-                  onChange={(event) => {
-                    setKeySaveStatus((current) => ({ ...current, [provider]: "" }));
-                    setProviderKeyDrafts((current) => ({ ...current, [provider]: event.target.value }));
-                  }}
-                  placeholder="Enter key to save for BYOK"
-                  aria-label={`${provider} API key`}
-                />
-                <button
-                  type="button"
-                  className={styles.providerKeySaveButton}
-                  onClick={() => saveProviderKey(provider)}
-                  disabled={!userId || !providerKeyDrafts[provider].trim()}
-                >
-                  Save key
-                </button>
-              </div>
-              {providerKeyStatus[provider].configured && (
-                <div className={styles.savedKeyRow}>
-                  <span>Saved key: {providerKeyStatus[provider].masked}</span>
-                  <button type="button" className={styles.deleteKeyButton} onClick={() => deleteProviderKey(provider)}>Delete key</button>
-                </div>
-              )}
-              {keySaveStatus[provider] && <p className={styles.providerKeySaveStatus}>{keySaveStatus[provider]}</p>}
             </div>
             );
           })}
+            </div>
+          </details>}
             </div>
           </div>
         </div>
@@ -1136,8 +1028,9 @@ export default function Home() {
         <div className={styles.chatViewport} ref={viewportRef}>
           {chat.length === 0 && !result && (
             <div className={styles.emptyState}>
-              <h2>Ask a question and compare three model opinions.</h2>
-              <p>Each prompt is evaluated by GPT, Gemini, and Claude, then synthesized into one transparent answer.</p>
+              <h2>Ask once. Compare answers.</h2>
+              <p>Get answers from multiple AI models and see where they agree.</p>
+              {!userId && <><p>Start with 10 free requests per month. No credit card required.</p><button type="button" className={styles.profileButton} onClick={() => { setAuthMode("signup"); setShowSettings(true); }}>Get started free</button><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowSettings(true); }}>Already have an account? Sign in</button></>}
             </div>
           )}
 
@@ -1178,7 +1071,8 @@ export default function Home() {
           {error && (
             <div className={styles.errorCard}>
               <span className={styles.errorMessage}>{error}</span>
-              {lastRequestRef.current && (
+              {userId && <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>View plan and settings</button>}
+              {lastRequest && (
                 <button type="button" className={styles.retryButton} onClick={retryLastRequest} disabled={isLoading}>
                   Try again
                 </button>
@@ -1194,7 +1088,7 @@ export default function Home() {
             onChange={(event) => setInput(event.target.value)}
             rows={1}
             className={styles.textarea}
-            placeholder="Ask for a comparison, a risk analysis, or a policy trade-off…"
+            placeholder="Ask a question or paste a multiple-choice question…"
             onPaste={(event) => {
               const imageItem = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
               if (!imageItem) return;

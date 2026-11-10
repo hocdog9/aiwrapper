@@ -19,7 +19,7 @@ const MAX_PROMPT_CHARACTERS = 24_000;
 const MAX_IMAGES = 4;
 const MAX_TOTAL_IMAGE_BYTES = 3 * 1024 * 1024;
 const configuredMinimum = Number.parseInt(process.env.MIN_SUCCESSFUL_PROVIDERS || "2", 10);
-const MIN_SUCCESSFUL_PROVIDERS = Number.isFinite(configuredMinimum) ? Math.min(PROVIDERS.length, Math.max(1, configuredMinimum)) : 2;
+const MIN_SUCCESSFUL_PROVIDERS = Number.isFinite(configuredMinimum) ? Math.min(PROVIDERS.length, Math.max(2, configuredMinimum)) : 2;
 
 type ConsensusPayload = {
   consensus: string;
@@ -42,7 +42,7 @@ function safeErrorResponse(error: string, status: number) {
 function mapDatabaseError(error: { message?: string; code?: string }): { message: string; status: number } {
   const message = error.message ?? "";
   if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Consensus.", status: 401 };
-  if (message.includes("NO_CREDITS")) return { message: "You have used this period's Consensus allowance. Upgrade your plan or switch to BYOK in Settings.", status: 402 };
+  if (message.includes("NO_CREDITS")) return { message: "You have used this period's Consensus allowance. Upgrade to Premium in Settings or wait for your allowance to reset.", status: 402 };
   if (message.includes("PLAN_LIMIT")) return { message: "This subscription is not active. Update your billing details to continue.", status: 402 };
   if (message.includes("RATE_LIMITED")) return { message: "Request limit reached. Wait a minute and try again.", status: 429 };
   if (message.includes("CONCURRENCY_LIMIT")) return { message: "You already have the maximum number of Consensus requests processing. Wait for one to finish.", status: 429 };
@@ -175,7 +175,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
 
     const requestSettings = body.settings && typeof body.settings === "object" ? body.settings as RequestSettings : {};
     const selectedProviders = PROVIDERS.filter((provider) => requestSettings[provider]?.enabled !== false);
-    if (!selectedProviders.length) return safeErrorResponse("Enable at least one provider in Settings.", 400);
+    if (selectedProviders.length < 2) return safeErrorResponse("Choose at least two providers in Settings.", 400);
 
     const billingMode = await getBillingMode(context);
     const modelAllowlist = await getModelAllowlist(context, billingMode);
@@ -184,7 +184,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         ? requestSettings[provider]!.model!
         : DEFAULT_MODELS[provider];
       if (modelAllowlist && !modelAllowlist[provider]?.includes(selectedModel)) {
-        return safeErrorResponse(`${selectedModel} is not included in your plan. Choose an allowed model or switch to BYOK.`, 403);
+        return safeErrorResponse(`${selectedModel} is not included in your plan. Choose a model available in Settings.`, 403);
       }
     }
     const { data: reservation, error: reserveError } = await context.userClient.rpc("reserve_consensus_credit", { p_request_id: requestId });

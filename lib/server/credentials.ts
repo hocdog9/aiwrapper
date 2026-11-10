@@ -1,10 +1,9 @@
 import "server-only";
 
 import type { AuthenticatedContext } from "./auth";
-import { decryptSecret, type SecretEnvelope } from "./secret-box";
 import type { ProviderName } from "./model-pricing";
 
-export type BillingMode = "managed" | "byok";
+export type BillingMode = "managed";
 export type ProviderCredential = { apiKey: string; billingMode: BillingMode };
 
 const ENV_KEYS: Record<ProviderName, string> = {
@@ -27,7 +26,8 @@ export async function getBillingMode(context: AuthenticatedContext): Promise<Bil
     .eq("user_id", context.user.id)
     .maybeSingle();
   if (error) throw new Error("Billing settings are unavailable. Apply the billing database migration.");
-  return data?.billing_mode === "byok" ? "byok" : "managed";
+  if (data?.billing_mode !== "managed") throw new Error("Apply the Free and Premium database migration before serving requests.");
+  return "managed";
 }
 
 export async function resolveProviderCredential(
@@ -35,31 +35,8 @@ export async function resolveProviderCredential(
   provider: ProviderName,
   billingMode: BillingMode,
 ): Promise<ProviderCredential> {
-  if (billingMode === "managed") {
-    const apiKey = process.env[ENV_KEYS[provider]];
-    if (!apiKey) throw new CredentialResolutionError(`${provider} is not configured for Managed mode. Add the server-side provider secret or switch to BYOK.`);
-    return { apiKey, billingMode };
-  }
-
-  if (!context.adminClient) {
-    throw new CredentialResolutionError("BYOK storage is not configured. Set SUPABASE_SERVICE_ROLE_KEY on the server.");
-  }
-  const { data, error } = await context.adminClient
-    .from("user_provider_credentials")
-    .select("encrypted_secret, encryption_metadata")
-    .eq("user_id", context.user.id)
-    .eq("provider", provider)
-    .maybeSingle();
-  if (error || !data) {
-    throw new CredentialResolutionError(`${provider} key is not saved for BYOK. Add it in Settings or switch to Managed mode.`);
-  }
-
-  try {
-    return {
-      apiKey: decryptSecret(data.encrypted_secret, data.encryption_metadata as SecretEnvelope["metadata"]),
-      billingMode,
-    };
-  } catch {
-    throw new CredentialResolutionError(`${provider} key could not be decrypted. Replace it in Settings.`);
-  }
+  void context;
+  const apiKey = process.env[ENV_KEYS[provider]];
+  if (!apiKey) throw new CredentialResolutionError(`${provider} is temporarily unavailable. Please try again later.`);
+  return { apiKey, billingMode };
 }

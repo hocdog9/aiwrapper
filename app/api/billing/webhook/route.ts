@@ -16,24 +16,25 @@ async function applySubscription(
     periodEnd?: number;
   },
 ) {
-  const allowedPlans = ["free", "basic", "plus"];
+  const allowedPlans = ["free", "premium"];
   const planId = allowedPlans.includes(input.planId) ? input.planId : "free";
   const { data: plan, error: planError } = await admin.from("plan_catalog")
     .select("monthly_credits").eq("plan_id", planId).maybeSingle();
   if (planError || !plan) throw new Error("Plan configuration is missing.");
 
   const { data: current, error: currentError } = await admin.from("user_billing")
-    .select("current_period_start, credits_used").eq("user_id", input.userId).maybeSingle();
+    .select("plan_id, current_period_start").eq("user_id", input.userId).maybeSingle();
   if (currentError) throw new Error("Could not read billing entitlement.");
   const periodStart = input.periodStart ? new Date(input.periodStart * 1000).toISOString() : current?.current_period_start;
-  const newBillingPeriod = Boolean(input.periodStart && current?.current_period_start && periodStart !== current.current_period_start);
+  const newBillingPeriod = Boolean(input.periodStart && current?.current_period_start && input.periodStart * 1000 !== new Date(current.current_period_start).getTime());
+  const planChanged = Boolean(current && current.plan_id !== planId);
 
   const { error } = await admin.from("user_billing").upsert({
     user_id: input.userId,
     plan_id: planId,
     subscription_status: input.status,
     included_credits: plan.monthly_credits,
-    credits_used: newBillingPeriod ? 0 : current?.credits_used ?? 0,
+    ...(!current || newBillingPeriod || planChanged ? { credits_used: 0 } : {}),
     stripe_customer_id: input.customerId,
     stripe_subscription_id: input.subscriptionId,
     ...(periodStart ? { current_period_start: periodStart } : {}),
@@ -106,7 +107,7 @@ export async function POST(request: NextRequest) {
           planId: isDeleted ? "free" : subscription.metadata.planId ?? "free",
           customerId,
           subscriptionId: isDeleted ? null : subscription.id,
-          status: isDeleted ? "canceled" : subscription.status,
+          status: isDeleted ? "active" : subscription.status,
           periodStart: subscription.items.data[0]?.current_period_start,
           periodEnd: subscription.items.data[0]?.current_period_end,
         });

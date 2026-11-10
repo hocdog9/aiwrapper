@@ -35,40 +35,24 @@ The easiest way to deploy your Next.js app is to use the [Vercel Platform](https
 
 Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
 
-## Consensus Billing and Provider Credentials
+## Free and Premium setup
 
-Provider calls run through authenticated Next.js route handlers. New accounts use Managed mode and the server-only `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY` variables. Managed requests reserve one plan credit atomically, enforce per-user rate/concurrency limits, record provider usage, and refund the credit if fewer than the configured minimum providers succeed.
+Users sign up and start chatting with app-provided model access. Free includes 10 requests per month; Premium includes 500. Each successful request costs one request, including synthesis. At least two providers must respond; failed requests are refunded. Users never configure API keys or billing modes.
 
-BYOK is opt-in. Keys are validated and encrypted with AES-256-GCM before being stored in Supabase. The browser receives only a masked suffix. Existing plaintext keys in `api_profiles.settings` are removed by the migration below; users must re-enter their BYOK keys afterwards. No automatic plaintext-to-ciphertext migration is performed.
+1. Copy `.env.example` to `.env.local`. Configure the public Supabase URL and publishable key, and server-only `SUPABASE_SERVICE_ROLE_KEY`.
+2. Set server-only `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`, and configure available model IDs. Default selections use GPT and Gemini. Keys are never sent to the browser.
+3. Run `supabase/schema.sql`, `supabase/managed_billing_byok_migration.sql`, then `supabase/free_premium_migration.sql` in the Supabase SQL Editor. If the first two were already applied, only run the third. The earlier migration is historical; the final migration disables BYOK and adds Premium.
+4. Run `npm install`, `npm run check`, `npm test`, and `npm run build`.
+5. Set the same environment variables in Vercel before deploying. SQL migrations are applied separately from deployment.
 
-### Setup
+### Premium subscriptions
 
-1. Copy `.env.example` to `.env.local` and configure `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY`.
-2. Set `SUPABASE_SERVICE_ROLE_KEY` server-side. Never use a `NEXT_PUBLIC_` prefix for it.
-3. Generate a 32-byte encryption key with `openssl rand -base64 32` and set it as server-only `BYOK_ENCRYPTION_KEY`. Keep the same key across deployments; changing it makes stored BYOK credentials undecryptable.
-4. Configure the managed provider secrets server-side if you intend to offer Managed mode. They are not returned to clients.
-5. In the Supabase SQL Editor, run `supabase/schema.sql`, then `supabase/managed_billing_byok_migration.sql`. The latter initializes Free entitlements, removes existing plaintext profile keys, enforces unique profile names, and creates credit/rate-limit RPCs. Re-enter BYOK keys after running it.
-6. Run `npm install`, `npm run check`, `npm test`, and `npm run build`.
+Create a recurring Premium price in Stripe. Set `BILLING_PREMIUM_PRICE_ID`, `BILLING_SECRET_KEY`, `BILLING_WEBHOOK_SECRET`, and `APP_URL`. Configure the Stripe customer portal and a webhook to `/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`.
 
-### Stripe
+Stripe checkout displays the configured price before payment. Webhooks grant Premium access; a checkout redirect alone does not. Paid allowances reset through subscription events, while Free allowances reset on the next request after the period ends. Cancellation returns the account to Free. Premium upgrades are unavailable until Stripe is configured; Free chat works independently.
 
-Set `BILLING_SECRET_KEY`, `BILLING_BASIC_PRICE_ID`, `BILLING_PLUS_PRICE_ID`, `BILLING_WEBHOOK_SECRET`, and `APP_URL` in the deployment secret manager. Create recurring Basic and Plus prices in Stripe. Configure a webhook to `https://<your-app-host>/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`.
+### Models and usage
 
-Stripe webhook events, not checkout redirects, update entitlements. Replace the placeholder plan allowances in `plan_catalog` through an intentional database migration when changing product policy. Free currently includes 10 requests/month; Basic 100 and Plus 500. Plan price IDs and USD prices are controlled by Stripe.
+`plan_catalog.allowed_models` maps provider names (`GPT`, `Gemini`, `Claude`) to model-ID arrays. Empty arrays fall back to the configured server models. Users choose one model per provider and at least two providers. Optional `MODEL_PRICING_JSON` configures token cost estimates; without rates, usage is recorded but cost is unavailable.
 
-Managed model access is controlled by `plan_catalog.allowed_models`, shaped as provider-name keys mapping to model-ID arrays, for example `{"GPT":["gpt-4o-mini"],"Gemini":["gemini-3.8-flash"],"Claude":["claude-3-5-sonnet-20241022"]}`. An empty provider list falls back to that provider's configured server model. Configure model IDs intentionally for each plan; users cannot invoke an arbitrary provider model outside the plan allowlist. BYOK mode instead lists models available to the user's validated keys.
-
-### Pricing and secrets
-
-`MODEL_PRICING_JSON` is optional and accepts provider/model rates as integer USD micros per million input/output tokens, with an optional cached-input rate. Do not set guessed prices. Until intended current provider prices are entered, token usage is recorded but estimated cost remains unavailable. Cached-token costs are also unavailable unless a cached rate is explicitly configured.
-
-All secrets in `.env.example` without a `NEXT_PUBLIC_` prefix are server-only. Do not commit `.env.local`. If a provider secret was ever committed, rotate it in that provider’s dashboard. `SUPABASE_SERVICE_ROLE_KEY` and `BYOK_ENCRYPTION_KEY` must only exist in server environment variables or the deployment secret manager.
-
-### Current boundaries
-
-- Authentication uses the existing Supabase account and verifies bearer tokens server-side.
-- BYOK requires all three provider keys before the account can switch modes.
-- Provider adapters normalize output, usage, latency, and request IDs; upstream error messages are sanitized before returning to the browser.
-- Internal provider-cost rows are server-only; users see only their plan allowance.
-- Billing checkout requires real Stripe products, price IDs, and webhook configuration before it can run.
-- Encryption-key rotation, KMS integration, advanced admin cost dashboards, and automated pricing refresh are not included. Configure and rotate secrets operationally.
+Keep `.env.local` and server credentials out of Git. The historical encrypted-key helpers and tables are unused by the application; `BYOK_ENCRYPTION_KEY` is no longer required.

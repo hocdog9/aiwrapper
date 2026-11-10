@@ -16,7 +16,7 @@ export async function getModelAllowlist(
   context: AuthenticatedContext,
   billingMode: BillingMode,
 ): Promise<ProviderModelAllowlist | null> {
-  if (billingMode === "byok") return null;
+  void billingMode;
   const { data: billing, error: billingError } = await context.userClient
     .from("user_billing").select("plan_id").eq("user_id", context.user.id).maybeSingle();
   if (billingError || !billing) throw new Error("Plan model access is unavailable. Apply the billing database migration.");

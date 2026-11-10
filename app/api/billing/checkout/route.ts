@@ -2,11 +2,6 @@ import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
 import { authenticateRequest } from "@/lib/server/auth";
 
-const PRICE_IDS = {
-  basic: () => process.env.BILLING_BASIC_PRICE_ID,
-  plus: () => process.env.BILLING_PLUS_PRICE_ID,
-};
-
 function appUrl(): string | null {
   const value = process.env.APP_URL;
   if (!value) return null;
@@ -23,19 +18,22 @@ export async function POST(request: NextRequest) {
   if (!context) return NextResponse.json({ error: "Sign in before choosing a plan." }, { status: 401 });
   if (!context.adminClient) return NextResponse.json({ error: "Billing storage is not configured on the server." }, { status: 503 });
   const body = await request.json().catch(() => ({}));
-  const planId = body.planId as keyof typeof PRICE_IDS;
-  const priceId = PRICE_IDS[planId]?.();
+  if (body.planId !== "premium") return NextResponse.json({ error: "Choose Premium to upgrade." }, { status: 400 });
+  const planId = "premium";
+  const priceId = process.env.BILLING_PREMIUM_PRICE_ID;
   const baseUrl = appUrl();
   const secretKey = process.env.BILLING_SECRET_KEY;
   if (!priceId || !baseUrl || !secretKey) {
-    return NextResponse.json({ error: "Checkout is not configured. Set the plan price ID, BILLING_SECRET_KEY, and APP_URL." }, { status: 503 });
+    return NextResponse.json({ error: "Premium upgrades are not available yet. You can continue using Free." }, { status: 503 });
   }
 
   try {
     const stripe = new Stripe(secretKey);
     const { data: billing, error: lookupError } = await context.adminClient.from("user_billing")
-      .select("stripe_customer_id").eq("user_id", context.user.id).maybeSingle();
+      .select("stripe_customer_id, stripe_subscription_id").eq("user_id", context.user.id).maybeSingle();
     if (lookupError || !billing) return NextResponse.json({ error: "Billing profile not found." }, { status: 503 });
+
+    if (billing.stripe_subscription_id) return NextResponse.json({ error: "You already have a subscription. Use Manage subscription to change it." }, { status: 409 });
 
     let customerId = billing.stripe_customer_id;
     if (!customerId) {
