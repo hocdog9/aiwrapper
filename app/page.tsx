@@ -933,173 +933,6 @@ export default function Home() {
             </button>
           </div>
         </div>
-        {showSettings && (
-          <div className={styles.settingsBackdrop} onMouseDown={() => setShowSettings(false)}>
-            <div className={styles.settingsPanel} role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
-              <div className={styles.settingsHeader}>
-                <div>
-                  <p className={styles.mutedLabel}>Settings</p>
-                  <h2 id="settings-title">Model settings</h2>
-                </div>
-                <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">
-                  ×
-                </button>
-              </div>
-              <div className={styles.historyHeader}>
-                <p className={styles.mutedLabel}>Profile and providers</p>
-              </div>
-              <div className={styles.settingsContent}>
-            <select
-              className={styles.settingsInput}
-              value={activeProfileId}
-              onChange={(event) => {
-                const profile = profiles.find((item) => item.id === event.target.value);
-                if (profile) switchProfile(profile);
-              }}
-              aria-label="Settings profile"
-            >
-              {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
-            </select>
-            <input
-              className={styles.settingsInput}
-              value={profileName}
-              onChange={(event) => {
-                const nextName = event.target.value;
-                const isDuplicate = profiles.some((profile) => (
-                  profile.id !== activeProfileId
-                  && profile.name.trim().toLocaleLowerCase() === nextName.trim().toLocaleLowerCase()
-                ));
-                if (isDuplicate) {
-                  setProfileNameError("A profile with that name already exists.");
-                  return;
-                }
-                setProfileNameError("");
-                setProfileName(nextName);
-              }}
-              placeholder="Profile name"
-              aria-label="Profile name"
-            />
-            {profileNameError && <p className={styles.authError}>{profileNameError}</p>}
-            <div className={styles.profileActions}>
-              <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
-              <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
-            </div>
-            <label className={styles.providerCheck}>
-              <input
-                type="checkbox"
-                checked={settings.consensusDropdownDefaultOpen}
-                onChange={(event) => setSettings((current) => ({
-                  ...current,
-                  consensusDropdownDefaultOpen: event.target.checked,
-                }))}
-              />
-              Open consensus dropdowns by default
-            </label>
-            {userId && (
-              <section className={styles.billingSettings} aria-labelledby="billing-mode-title">
-                <h3 id="billing-mode-title">Billing mode</h3>
-                <label className={styles.billingModeOption}>
-                  <input type="radio" name="billing-mode" checked={billingMode === "managed"} onChange={() => changeBillingMode("managed")} />
-                  <span><strong>Managed by Consensus</strong><small>No provider keys needed. Uses your plan allowance.</small></span>
-                </label>
-                <label className={styles.billingModeOption}>
-                  <input type="radio" name="billing-mode" checked={billingMode === "byok"} onChange={() => changeBillingMode("byok")} />
-                  <span><strong>Bring Your Own Keys</strong><small>Provider inference is billed to your provider accounts.</small></span>
-                </label>
-              </section>
-            )}
-            {usageSummary && userId && (
-              <section className={styles.usageCard} aria-label="Plan usage">
-                <div><strong>Plan: {usageSummary.plan}</strong><span>{usageSummary.creditsUsed} / {usageSummary.includedCredits} credits used</span></div>
-                <p>Renews {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
-                <div className={styles.billingActions}>
-                  <button type="button" className={styles.profileButton} onClick={() => startCheckout("basic")}>Upgrade to Basic</button>
-                  <button type="button" className={styles.profileButton} onClick={() => startCheckout("plus")}>Upgrade to Plus</button>
-                  <button type="button" className={styles.profileButton} onClick={openBillingPortal}>Manage billing</button>
-                </div>
-              </section>
-            )}
-            <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers. BYOK secrets are encrypted on the server." : "Sign in to save provider keys and sync profiles."}</p>
-            {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
-            {userEmail ? (
-              <div className={styles.accountRow}>
-                <span>{userEmail}</span>
-                <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
-              </div>
-            ) : (
-              <form className={styles.authForm} onSubmit={handleAuth}>
-                <p className={styles.settingsNote}>Sign in to use these profiles on other browsers.</p>
-                <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
-                <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
-                {authError && <p className={styles.authError}>{authError}</p>}
-                <button type="submit" className={styles.profileButton}>{authMode === "login" ? "Sign in" : "Create account"}</button>
-                <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
-                  {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
-                </button>
-              </form>
-            )}
-            {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
-              const modelIds = modelCatalog[provider];
-              return (
-              <div key={provider} className={styles.providerSetting}>
-                <label className={styles.providerCheck}>
-                  <input
-                    type="checkbox"
-                    checked={settings[provider].enabled}
-                    onChange={(event) => setSettings((current) => ({
-                      ...current,
-                      [provider]: { ...current[provider], enabled: event.target.checked },
-                    }))}
-                  />
-                  {provider}
-                </label>
-                <select
-                  className={styles.settingsInput}
-                  value={settings[provider].model}
-                  onChange={(event) => setSettings((current) => ({
-                    ...current,
-                    [provider]: { ...current[provider], model: event.target.value },
-                  }))}
-                  aria-label={`${provider} model`}
-                >
-                  {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
-                </select>
-                {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
-                <div className={styles.providerKeySaveRow}>
-                  <input
-                    className={styles.settingsInput}
-                    type="password"
-                    value={providerKeyDrafts[provider]}
-                    onChange={(event) => {
-                      setKeySaveStatus((current) => ({ ...current, [provider]: "" }));
-                      setProviderKeyDrafts((current) => ({ ...current, [provider]: event.target.value }));
-                    }}
-                    placeholder="Enter key to save for BYOK"
-                    aria-label={`${provider} API key`}
-                  />
-                  <button
-                    type="button"
-                    className={styles.providerKeySaveButton}
-                    onClick={() => saveProviderKey(provider)}
-                    disabled={!userId || !providerKeyDrafts[provider].trim()}
-                  >
-                    Save key
-                  </button>
-                </div>
-                {providerKeyStatus[provider].configured && (
-                  <div className={styles.savedKeyRow}>
-                    <span>Saved key: {providerKeyStatus[provider].masked}</span>
-                    <button type="button" className={styles.deleteKeyButton} onClick={() => deleteProviderKey(provider)}>Delete key</button>
-                  </div>
-                )}
-                {keySaveStatus[provider] && <p className={styles.providerKeySaveStatus}>{keySaveStatus[provider]}</p>}
-              </div>
-              );
-            })}
-              </div>
-            </div>
-          </div>
-        )}
         <div className={styles.sidebarCard}>
           <p className={styles.mutedLabel}>Current status</p>
           <p className={styles.statusLine}>{statusText}</p>
@@ -1130,6 +963,174 @@ export default function Home() {
           </div>
         </div>
       </aside>
+
+      {showSettings && (
+        <div className={styles.settingsBackdrop} onMouseDown={() => setShowSettings(false)}>
+          <div className={styles.settingsPanel} role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
+            <div className={styles.settingsHeader}>
+              <div>
+                <p className={styles.mutedLabel}>Settings</p>
+                <h2 id="settings-title">Model settings</h2>
+              </div>
+              <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">
+                ×
+              </button>
+            </div>
+            <div className={styles.historyHeader}>
+              <p className={styles.mutedLabel}>Profile and providers</p>
+            </div>
+            <div className={styles.settingsContent}>
+          <select
+            className={styles.settingsInput}
+            value={activeProfileId}
+            onChange={(event) => {
+              const profile = profiles.find((item) => item.id === event.target.value);
+              if (profile) switchProfile(profile);
+            }}
+            aria-label="Settings profile"
+          >
+            {profiles.map((profile) => <option key={profile.id} value={profile.id}>{profile.name}</option>)}
+          </select>
+          <input
+            className={styles.settingsInput}
+            value={profileName}
+            onChange={(event) => {
+              const nextName = event.target.value;
+              const isDuplicate = profiles.some((profile) => (
+                profile.id !== activeProfileId
+                && profile.name.trim().toLocaleLowerCase() === nextName.trim().toLocaleLowerCase()
+              ));
+              if (isDuplicate) {
+                setProfileNameError("A profile with that name already exists.");
+                return;
+              }
+              setProfileNameError("");
+              setProfileName(nextName);
+            }}
+            placeholder="Profile name"
+            aria-label="Profile name"
+          />
+          {profileNameError && <p className={styles.authError}>{profileNameError}</p>}
+          <div className={styles.profileActions}>
+            <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
+            <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
+          </div>
+          <label className={styles.providerCheck}>
+            <input
+              type="checkbox"
+              checked={settings.consensusDropdownDefaultOpen}
+              onChange={(event) => setSettings((current) => ({
+                ...current,
+                consensusDropdownDefaultOpen: event.target.checked,
+              }))}
+            />
+            Open consensus dropdowns by default
+          </label>
+          {userId && (
+            <section className={styles.billingSettings} aria-labelledby="billing-mode-title">
+              <h3 id="billing-mode-title">Billing mode</h3>
+              <label className={styles.billingModeOption}>
+                <input type="radio" name="billing-mode" checked={billingMode === "managed"} onChange={() => changeBillingMode("managed")} />
+                <span><strong>Managed by Consensus</strong><small>No provider keys needed. Uses your plan allowance.</small></span>
+              </label>
+              <label className={styles.billingModeOption}>
+                <input type="radio" name="billing-mode" checked={billingMode === "byok"} onChange={() => changeBillingMode("byok")} />
+                <span><strong>Bring Your Own Keys</strong><small>Provider inference is billed to your provider accounts.</small></span>
+              </label>
+            </section>
+          )}
+          {usageSummary && userId && (
+            <section className={styles.usageCard} aria-label="Plan usage">
+              <div><strong>Plan: {usageSummary.plan}</strong><span>{usageSummary.creditsUsed} / {usageSummary.includedCredits} credits used</span></div>
+              <p>Renews {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
+              <div className={styles.billingActions}>
+                <button type="button" className={styles.profileButton} onClick={() => startCheckout("basic")}>Upgrade to Basic</button>
+                <button type="button" className={styles.profileButton} onClick={() => startCheckout("plus")}>Upgrade to Plus</button>
+                <button type="button" className={styles.profileButton} onClick={openBillingPortal}>Manage billing</button>
+              </div>
+            </section>
+          )}
+          <p className={styles.settingsNote}>{userEmail ? "Signed-in profiles sync across browsers. BYOK secrets are encrypted on the server." : "Sign in to save provider keys and sync profiles."}</p>
+          {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
+          {userEmail ? (
+            <div className={styles.accountRow}>
+              <span>{userEmail}</span>
+              <button type="button" className={`${styles.profileButton} ${styles.logoutButton}`} onClick={signOut}>Sign out</button>
+            </div>
+          ) : (
+            <form className={styles.authForm} onSubmit={handleAuth}>
+              <p className={styles.settingsNote}>Sign in to use these profiles on other browsers.</p>
+              <input className={styles.settingsInput} type="email" value={authEmail} onChange={(event) => setAuthEmail(event.target.value)} placeholder="Email" required />
+              <input className={styles.settingsInput} type="password" value={authPassword} onChange={(event) => setAuthPassword(event.target.value)} placeholder="Password" minLength={6} required />
+              {authError && <p className={styles.authError}>{authError}</p>}
+              <button type="submit" className={styles.profileButton}>{authMode === "login" ? "Sign in" : "Create account"}</button>
+              <button type="button" className={styles.authSwitch} onClick={() => setAuthMode((current) => current === "login" ? "signup" : "login")}>
+                {authMode === "login" ? "Create an account" : "Already have an account? Sign in"}
+              </button>
+            </form>
+          )}
+          {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
+            const modelIds = modelCatalog[provider];
+            return (
+            <div key={provider} className={styles.providerSetting}>
+              <label className={styles.providerCheck}>
+                <input
+                  type="checkbox"
+                  checked={settings[provider].enabled}
+                  onChange={(event) => setSettings((current) => ({
+                    ...current,
+                    [provider]: { ...current[provider], enabled: event.target.checked },
+                  }))}
+                />
+                {provider}
+              </label>
+              <select
+                className={styles.settingsInput}
+                value={settings[provider].model}
+                onChange={(event) => setSettings((current) => ({
+                  ...current,
+                  [provider]: { ...current[provider], model: event.target.value },
+                }))}
+                aria-label={`${provider} model`}
+              >
+                {modelIds.map((modelId) => <option key={modelId} value={modelId}>{modelId}</option>)}
+              </select>
+              {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
+              <div className={styles.providerKeySaveRow}>
+                <input
+                  className={styles.settingsInput}
+                  type="password"
+                  value={providerKeyDrafts[provider]}
+                  onChange={(event) => {
+                    setKeySaveStatus((current) => ({ ...current, [provider]: "" }));
+                    setProviderKeyDrafts((current) => ({ ...current, [provider]: event.target.value }));
+                  }}
+                  placeholder="Enter key to save for BYOK"
+                  aria-label={`${provider} API key`}
+                />
+                <button
+                  type="button"
+                  className={styles.providerKeySaveButton}
+                  onClick={() => saveProviderKey(provider)}
+                  disabled={!userId || !providerKeyDrafts[provider].trim()}
+                >
+                  Save key
+                </button>
+              </div>
+              {providerKeyStatus[provider].configured && (
+                <div className={styles.savedKeyRow}>
+                  <span>Saved key: {providerKeyStatus[provider].masked}</span>
+                  <button type="button" className={styles.deleteKeyButton} onClick={() => deleteProviderKey(provider)}>Delete key</button>
+                </div>
+              )}
+              {keySaveStatus[provider] && <p className={styles.providerKeySaveStatus}>{keySaveStatus[provider]}</p>}
+            </div>
+            );
+          })}
+            </div>
+          </div>
+        </div>
+      )}
 
       <section className={styles.chatArea}>
         <div className={styles.chatViewport} ref={viewportRef}>
