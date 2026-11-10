@@ -3,6 +3,7 @@ import "server-only";
 import { logProviderError } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
+import { recentChatContext, MAX_CONTEXT_MESSAGES } from "@/lib/chat-context";
 import { buildConsensusClaims } from "@/lib/consensus";
 import { enforceGuestLimits } from "./guest-limits";
 import { authenticateRequest } from "./auth";
@@ -17,8 +18,6 @@ type RequestSettings = Partial<Record<ProviderName, ProviderChoice>>;
 type SafeProviderError = { provider: string; message: string };
 
 const PROVIDERS: ProviderName[] = ["GPT", "Gemini", "Claude"];
-const MAX_MESSAGES = 12;
-const MAX_PROMPT_CHARACTERS = 24_000;
 const MAX_IMAGES = 4;
 const MAX_TOTAL_IMAGE_BYTES = 3 * 1024 * 1024;
 
@@ -53,20 +52,18 @@ function mapDatabaseError(error: { message?: string; code?: string }): { message
   return { message: "Billing is unavailable. Confirm that the latest Supabase migration was applied.", status: 503 };
 }
 
-function cleanMessages(value: unknown): { messages: ChatMessage[]; error?: string } {
+export function cleanMessages(value: unknown): { messages: ChatMessage[]; error?: string } {
   if (!Array.isArray(value) || !value.length) return { messages: [], error: "Add a message before sending." };
-  if (value.length > MAX_MESSAGES) return { messages: [], error: `A conversation can contain at most ${MAX_MESSAGES} messages per request.` };
+  const recentValues = value.slice(-MAX_CONTEXT_MESSAGES);
 
   const messages: ChatMessage[] = [];
-  let characters = 0;
   let totalImages = 0;
   let totalImageBytes = 0;
-  for (const item of value) {
+  for (const item of recentValues) {
     if (!item || typeof item !== "object") return { messages: [], error: "Invalid message payload." };
     const role = item.role === "assistant" ? "assistant" : item.role === "user" ? "user" : "";
     if (!role || typeof item.content !== "string") return { messages: [], error: "Invalid message payload." };
     const content = item.content.trim().slice(0, 4_000);
-    characters += content.length;
     const rawImages = Array.isArray(item.images)
       ? item.images
       : item.image && typeof item.image === "object"
@@ -87,8 +84,7 @@ function cleanMessages(value: unknown): { messages: ChatMessage[]; error?: strin
     }
     messages.push({ role, content, images });
   }
-  if (characters > MAX_PROMPT_CHARACTERS) return { messages: [], error: "This conversation is too long. Start a new chat or shorten the prompt." };
-  return { messages };
+  return { messages: recentChatContext(messages) };
 }
 
 function buildPrompt(messages: ChatMessage[]): string {

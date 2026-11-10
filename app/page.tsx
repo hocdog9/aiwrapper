@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
+import { recentChatContext } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
 
@@ -625,7 +626,11 @@ export default function Home() {
     try {
       const response = await authenticatedFetch("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ messages: requestMessages, settings, requestId, conversationId: sessionId }),
+        body: JSON.stringify({ messages: recentChatContext(requestMessages).map((message, index, recent) => ({
+          role: message.role,
+          content: message.content,
+          ...(index === recent.length - 1 ? { images: message.images ?? (message.image ? [message.image] : []) } : {}),
+        })), settings, requestId, conversationId: sessionId }),
       });
 
       const payload = (await response.json()) as ResponsePayload & { error?: string };
