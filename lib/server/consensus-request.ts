@@ -1,5 +1,7 @@
 import "server-only";
 
+import { logProviderError } from "./provider-diagnostics";
+
 import { NextRequest, NextResponse } from "next/server";
 import { buildConsensusClaims } from "@/lib/consensus";
 import { enforceGuestLimits } from "./guest-limits";
@@ -225,6 +227,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         await recordUsage({ context, requestId, conversationId, billingMode, provider, model, callKind: "response", status: "success", usage: result.usage, latencyMs: result.latencyMs, providerRequestId: result.providerRequestId });
         return { provider, model, result };
       } catch (error) {
+        logProviderError(error, { provider, model, requestId, callKind: "response" });
         const message = error instanceof Error && error.name === "CredentialResolutionError"
           ? error.message
           : safeProviderError(error);
@@ -259,6 +262,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         if (synthesis.text) consensus.consensus = synthesis.text;
         break;
       } catch (error) {
+        logProviderError(error, { provider: candidate.provider, model: candidate.model, requestId, callKind: "synthesis" });
         const message = safeProviderError(error);
         errors.push({ provider: `${candidate.provider} synthesis`, message });
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: 0 });
