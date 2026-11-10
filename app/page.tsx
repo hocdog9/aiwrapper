@@ -45,6 +45,7 @@ type ResponsePayload = {
   responses: ModelResponse[];
   errors: { provider: string; message: string }[];
   requestId: string;
+  retryable?: boolean;
   usage: { creditCharged: number; creditsRemaining: number };
 };
 
@@ -359,7 +360,7 @@ export default function Home() {
   const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
-  const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string } | null>(null);
+  const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string; retryable?: boolean } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const chat = activeSession?.chat ?? EMPTY_CHAT;
   const result = activeSession?.result ?? null;
@@ -622,7 +623,7 @@ export default function Home() {
     }
   }
 
-  async function runRequest(requestMessages: ChatTurn[], userTurn: ChatTurn, sessionId: string, requestId: string) {
+  async function runRequest(requestMessages: ChatTurn[], sessionId: string, requestId: string, requestSettings: AppSettings = settings, retryOf?: string) {
     try {
       const response = await authenticatedFetch("/api/chat", {
         method: "POST",
@@ -630,10 +631,14 @@ export default function Home() {
           role: message.role,
           content: message.content,
           ...(index === recent.length - 1 ? { images: message.images ?? (message.image ? [message.image] : []) } : {}),
-        })), settings, requestId, conversationId: sessionId }),
+        })), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
       });
 
       const payload = (await response.json()) as ResponsePayload & { error?: string };
+      setLastRequest((current) => current?.requestId === requestId
+        ? (!response.ok && !payload.requestId && retryOf
+          ? { ...current, requestId: retryOf, retryable: true }
+          : { ...current, retryable: payload.retryable === true }) : current);
 
       if (!response.ok) {
         await refreshUsageSummary();
@@ -649,23 +654,13 @@ export default function Home() {
       setStatusText(payload.responses.length === 1 ? `Answer ready from ${payload.responses[0].provider}.` : payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
       setSessions((current) => current.map((session) => {
         if (session.id !== sessionId) return session;
-        const currentChat = session.chat;
-        const chatWithUserTurn = currentChat.some(
-          (message) => message.role === "user" && message.content === userTurn.content
-        )
-          ? currentChat
-          : [...currentChat, userTurn];
         const assistantMessage: ChatTurn = {
           role: "assistant",
           content: payload.consensus || "Here is the synthesized consensus.",
           result: payload,
         };
 
-        const hasAssistantMessage = chatWithUserTurn.some(
-          (message) => message.role === "assistant" && message.content === assistantMessage.content
-        );
-
-        return { ...session, chat: hasAssistantMessage ? chatWithUserTurn : [...chatWithUserTurn, assistantMessage], result: payload };
+        return { ...session, chat: [...requestMessages, assistantMessage], result: payload };
       }));
     } catch (submitError) {
       setError(submitError instanceof Error ? submitError.message : "Something went wrong.");
@@ -699,21 +694,45 @@ export default function Home() {
     setError(null);
     setIsLoading(true);
     setStatusText(`Asking ${getEnabledProviderLabel(settings)}…`);
-    await runRequest(requestMessages, userTurn, activeSession.id, requestId);
+    await runRequest(requestMessages, activeSession.id, requestId);
   }
 
   async function retryLastRequest() {
-    if (!lastRequest || isLoading) return;
+    if (!lastRequest || lastRequest.sessionId !== activeChatId || isLoading) return;
     const requestId = crypto.randomUUID();
-    setLastRequest({ ...lastRequest, requestId });
+    setLastRequest({ ...lastRequest, requestId, retryable: false });
     setError(null);
     setIsLoading(true);
     setStatusText("Trying again…");
-    await runRequest(lastRequest.messages, lastRequest.userTurn, lastRequest.sessionId, requestId);
+    await runRequest(lastRequest.messages, lastRequest.sessionId, requestId, settings, lastRequest.retryable ? lastRequest.requestId : undefined);
+  }
+
+  async function changeModel(provider: ProviderName, model: string) {
+    if (isLoading || settings[provider].model === model) return;
+    const nextSettings = { ...settings, [provider]: { ...settings[provider], model } };
+    setSettings(nextSettings);
+    if (!settings[provider].enabled || !activeSession) return;
+    // Reconstruct the last question after a reload as well as during the current session.
+    let previous = lastRequest?.sessionId === activeSession.id ? lastRequest : null;
+    if (!previous) {
+      const userIndex = chat.findLastIndex((message) => message.role === "user");
+      if (userIndex < 0) return;
+      previous = { messages: chat.slice(0, userIndex + 1), userTurn: chat[userIndex], sessionId: activeSession.id,
+        requestId: result?.requestId ?? "", retryable: result?.retryable === true };
+    }
+    const requestId = crypto.randomUUID();
+    setLastRequest({ ...previous, requestId, retryable: false });
+    setError(null);
+    setShowSettings(false);
+    setIsLoading(true);
+    setStatusText(previous.retryable ? "Retrying with your new model — no request charged…" : "Asking your new model…");
+    await runRequest(previous.messages, previous.sessionId, requestId, nextSettings,
+      previous.retryable ? previous.requestId : undefined);
   }
 
   function startNewChat() {
     const newSession = createChatSession();
+    setLastRequest(null);
     setSessions((current) => [newSession, ...current]);
     setActiveChatId(newSession.id);
     setInput("");
@@ -976,7 +995,7 @@ export default function Home() {
           )}
           {userId && <section className={styles.settingsContent} aria-labelledby="model-choices-title">
             <h3 id="model-choices-title">Models</h3>
-          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. If a model is busy, select another and retry. Changes apply to your next request.</p>
+          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. Changing an enabled model automatically retries your last question. Incomplete responses and their retries do not use your allowance; changing models after a successful answer uses one request.</p>
           {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
             const modelIds = modelCatalog[provider];
             return (
@@ -996,10 +1015,7 @@ export default function Home() {
               <select
                 className={styles.settingsInput}
                 value={settings[provider].model}
-                onChange={(event) => setSettings((current) => ({
-                  ...current,
-                  [provider]: { ...current[provider], model: event.target.value },
-                }))}
+                onChange={(event) => void changeModel(provider, event.target.value)}
                 aria-label={`${provider} model`}
                 disabled={isLoading}
               >
@@ -1091,7 +1107,7 @@ export default function Home() {
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
                 {message.role === "assistant" && message.result?.errors.length ? (
                   <div className={styles.partialProviderWarning} role="status">
-                    Partial provider response: {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}
+                    {message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}
                     <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>Change models</button>
                   </div>
                 ) : null}

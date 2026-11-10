@@ -37,7 +37,7 @@ Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/bui
 
 ## Free and Premium setup
 
-Visitors start chatting without signup using a persistent Supabase anonymous session stored in their browser. An email account is only required for Premium or cross-device access. Free includes 10 requests per month; Premium includes 500. Each successful request costs one request, including synthesis. One successful provider response is enough. Single-provider answers are shown directly without a consensus score or synthesis call; requests are refunded if no provider succeeds. Users never configure API keys or billing modes.
+Visitors start chatting without signup using a persistent Supabase anonymous session stored in their browser. An email account is only required for Premium or cross-device access. Free includes 10 requests per month; Premium includes 500. Each successful request costs one request, including synthesis. One successful provider response is enough. Single-provider answers are shown directly without a consensus score or synthesis call; requests are refunded if any provider or synthesis call fails. A retry of the same incomplete question also costs no credit. Users never configure API keys or billing modes.
 
 1. Copy `.env.example` to `.env.local`. Configure the public Supabase URL and publishable key, and server-only `SUPABASE_SERVICE_ROLE_KEY`.
 2. Set server-only `OPENAI_API_KEY`, `GEMINI_API_KEY`, and `ANTHROPIC_API_KEY`, and configure available model IDs. Default selections use GPT and Gemini. Keys are never sent to the browser.
@@ -72,6 +72,14 @@ This reduces casual cookie/storage resets, not determined abuse across networks 
 
 ### Choosing another model
 
-Open **Settings → Models**, select a model under the provider, and send a message or use **Try again**. Provider failures include a **Change models** shortcut. Choices persist with the current profile, including guest profiles. Selection is manual; the app never silently switches providers or models. Model availability, quotas, and outages still depend on the provider account.
+Open **Settings → Models**, select a model under an enabled provider. The last question is retried automatically with the new settings, replacing its previous answer. Provider failures include a **Change models** shortcut. Choices persist with the current profile, including guest profiles. Model selection is manual; retrying after selection is automatic. Model availability, quotas, and outages still depend on the provider account.
 
 Built-in alternatives include GPT-4.1 Mini, Gemini 3.7 Flash and 3.5 Flash-Lite, and Claude Haiku 4.5 alongside the configured defaults. Review provider support when changing the catalog: [OpenAI](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [Google](https://firebase.google.com/docs/ai-logic/models), [Anthropic](https://platform.claude.com/docs/en/models/haiku-4-5/overview). Configure explicit per-plan lists or server model-list variables to control which models your app funds. No SQL migration is needed for plans with empty model lists.
+
+### Automatic model retries and credits
+
+Run `supabase/model_retry_migration.sql` before deploying the automatic-retry version. It adds server-only reservation/finalization functions and disables the older client-callable credit functions. All deployments using this database must use the updated app after applying it.
+
+An incomplete response (including a partial provider or synthesis failure) is refunded. Changing an enabled model automatically resends the same conversation input; the server verifies its fingerprint, owner, and incomplete parent before allowing a zero-credit retry. A parent attempt can only be retried once, atomically; if that retry also fails, its new attempt can be retried. Successful answers retried by changing models use the normal allowance. New questions always use the normal allowance. Guest attempt, rate, and concurrency limits still apply.
+
+The response is replaced in place and the allowance shown comes from the finalized server ledger. Old responses from before this migration lack retry fingerprints and are not retroactively eligible for free retries. Apply and exercise the migration in Supabase to verify database behavior; local unit tests do not run the hosted database.

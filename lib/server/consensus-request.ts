@@ -1,5 +1,6 @@
 import "server-only";
 
+import { requestFingerprint } from "./request-fingerprint";
 import { logProviderError } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
@@ -42,6 +43,8 @@ function safeErrorResponse(error: string, status: number) {
 
 function mapDatabaseError(error: { message?: string; code?: string }): { message: string; status: number } {
   const message = error.message ?? "";
+  if (message.includes("INVALID_RETRY")) return { message: "This free retry does not match an incomplete request. Send a new question instead.", status: 409 };
+  if (message.includes("RETRY_ALREADY_USED")) return { message: "This response has already been retried. Please use the latest attempt.", status: 409 };
   if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Consensus.", status: 401 };
   if (message.includes("NO_CREDITS")) return { message: "You have used this period's Consensus allowance. Upgrade to Premium in Settings or wait for your allowance to reset.", status: 402 };
   if (message.includes("PLAN_LIMIT")) return { message: "This subscription is not active. Update your billing details to continue.", status: 402 };
@@ -176,6 +179,8 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
   try {
     const body = await request.json().catch(() => ({}));
     const requestId = typeof body.requestId === "string" ? body.requestId : "";
+    const retryOf = typeof body.retryOf === "string" ? body.retryOf : null;
+    if (retryOf && !/^[0-9a-f-]{36}$/i.test(retryOf)) return safeErrorResponse("Invalid retry reference.", 400);
     const conversationId = typeof body.conversationId === "string" ? body.conversationId : "";
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(requestId)) return safeErrorResponse("A valid request ID is required.", 400);
     if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(conversationId)) return safeErrorResponse("A valid conversation ID is required.", 400);
@@ -199,7 +204,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     const guestLimit = await enforceGuestLimits(request, context);
     if (guestLimit === "limited") return safeErrorResponse("Free guest access has reached a temporary limit. Try again later, or sign in to continue with your account allowance.", 429);
     if (guestLimit === "unavailable") return safeErrorResponse("Guest access is temporarily unavailable. Please try again later or sign in.", 503);
-    const { data: reservation, error: reserveError } = await context.userClient.rpc("reserve_consensus_credit", { p_request_id: requestId });
+    const { data: reservation, error: reserveError } = await context.adminClient.rpc("reserve_chat_request", { p_user_id: context.user.id, p_request_id: requestId, p_fingerprint: requestFingerprint(conversationId, cleaned.messages), p_retry_of: retryOf });
     if (reserveError) {
       const mapped = mapDatabaseError(reserveError);
       return safeErrorResponse(mapped.message, mapped.status);
@@ -236,12 +241,14 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     const successful = outcomes.filter((outcome): outcome is NonNullable<typeof outcome> => outcome !== null);
     const providerResponses = successful.map(({ provider, result }) => ({ provider, content: result.text }));
     if (successful.length === 0) {
-      await context.userClient.rpc("fail_consensus_request", { p_request_id: requestId });
+      const { error: finishError } = await context.adminClient.rpc("finish_chat_request", { p_user_id: context.user.id, p_request_id: requestId, p_response: null, p_had_errors: true });
+      if (finishError) throw new Error("Could not finalize failed request.");
       reservedRequestId = null;
       return NextResponse.json({
         error: "No providers could answer. No credit was used. Please try again.",
         errors,
         requestId,
+        retryable: true,
       }, { status: 502 });
     }
 
@@ -266,21 +273,23 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     }
     consensus.errors = errors;
 
-    const { data: billing } = await context.userClient.from("user_billing")
-      .select("included_credits, credits_used").eq("user_id", context.user.id).maybeSingle();
-    consensus.usage.creditsRemaining = billing ? Math.max(0, billing.included_credits - billing.credits_used) : 0;
-
-    const { error: completeError } = await context.userClient.rpc("complete_consensus_request", { p_request_id: requestId, p_response: consensus });
-    if (completeError) throw new Error("Could not safely finalize this request. No response was saved.");
+    const { data: completed, error: completeError } = await context.adminClient.rpc("finish_chat_request", {
+      p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: errors.length > 0,
+    });
+    if (completeError || !completed) throw new Error("Could not safely finalize this request.");
     reservedRequestId = null;
-    return NextResponse.json(consensus);
+    return NextResponse.json(completed);
   } catch (error) {
-    if (reservedRequestId) await context.userClient.rpc("fail_consensus_request", { p_request_id: reservedRequestId });
+    let retryable = false;
+    if (reservedRequestId) {
+      const { error: finishError } = await context.adminClient.rpc("finish_chat_request", { p_user_id: context.user.id, p_request_id: reservedRequestId, p_response: null, p_had_errors: true });
+      retryable = !finishError;
+    }
     const message = error instanceof Error && error.name === "CredentialResolutionError"
       ? error.message
       : error instanceof Error && error.message === "Usage ledger could not record this provider call."
         ? error.message
         : "Consensus request failed safely. Try again, or check billing and provider settings.";
-    return safeErrorResponse(message, 500);
+    return NextResponse.json({ error: message, requestId: reservedRequestId, retryable }, { status: 500 });
   }
 }
