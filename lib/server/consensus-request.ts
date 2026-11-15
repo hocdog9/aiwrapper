@@ -1,11 +1,12 @@
 import "server-only";
 
+import { readSynthesis, consolidationPrompt } from "./synthesis";
 import { requestFingerprint } from "./request-fingerprint";
 import { logProviderError } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
 import { recentChatContext, MAX_CONTEXT_MESSAGES } from "@/lib/chat-context";
-import { comparisonPrompt, parseComparison, type AnswerComparison } from "@/lib/answer-comparison";
+import { comparisonPrompt, type AnswerComparison } from "@/lib/answer-comparison";
 import { enforceGuestLimits } from "./guest-limits";
 import { authenticateRequest } from "./auth";
 import { getBillingMode, resolveProviderCredential, type BillingMode } from "./credentials";
@@ -109,7 +110,7 @@ export function makeResponse(responses: Array<{ provider: ProviderName; content:
     };
   }
   return {
-    consensus: responses.map(r => `### ${r.provider}\n\n${r.content}`).join("\n\n"),
+    consensus: "A consolidated answer could not be generated. You can review the individual answers below or retry.",
     agreementScore: null, summary: "Comparison unavailable",
     agreements: [], disagreements: [], claims: [],
     confidenceNote: "The answers have not been compared. Review the individual responses.",
@@ -239,28 +240,61 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     }
 
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
+    let hasConsolidatedAnswer = successful.length === 1;
+    const conversation = cleaned.messages.map(m => `${m.role}: ${m.content}`).join("\n");
     for (const candidate of successful.length > 1 ? successful : []) {
       try {
         const synthesis = await invokeProvider({
           provider: candidate.provider,
           apiKey: (await resolveProviderCredential(context, candidate.provider, billingMode)).apiKey,
           model: candidate.model,
-          prompt: comparisonPrompt(cleaned.messages.map(m => `${m.role}: ${m.content}`).join("\n"), providerResponses),
+          prompt: comparisonPrompt(conversation, providerResponses),
           images: latestImages,
           maxOutputTokens: 4096,
         });
-        const comparison = parseComparison(synthesis.text, providerResponses);
+        const comparison = readSynthesis(synthesis.text, providerResponses);
+        if (comparison.answer) {
+          consensus.consensus = comparison.answer;
+          hasConsolidatedAnswer = true;
+        }
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "success", usage: synthesis.usage, latencyMs: synthesis.latencyMs, providerRequestId: synthesis.providerRequestId });
-        consensus.consensus = comparison.answer;
+        if (comparison.error) throw comparison.error;
+        consensus.consensus = comparison.answer!;
         consensus.comparison = comparison.comparison;
-        consensus.summary = comparison.summary;
+        consensus.summary = comparison.summary!;
         consensus.confidenceNote = "AI comparison of the responding models, supported by excerpts. Agreement does not establish correctness.";
         break;
       } catch (error) {
         logProviderError(error, { provider: candidate.provider, model: candidate.model, requestId, callKind: "synthesis" });
-        const message = safeProviderError(error);
+        const message = error instanceof Error && error.message === "Comparison structure or source evidence did not validate"
+          ? "The detailed comparison could not be verified. The consolidated answer is shown when available."
+          : safeProviderError(error);
         errors.push({ provider: `${candidate.provider} synthesis`, message });
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: 0 });
+      }
+    }
+    // Comparison formatting must not prevent a readable consolidated answer.
+    if (!hasConsolidatedAnswer && successful.length > 1) {
+      for (const candidate of successful) {
+        const startedAt = Date.now();
+        try {
+          const synthesis = await invokeProvider({
+            provider: candidate.provider,
+            apiKey: (await resolveProviderCredential(context, candidate.provider, billingMode)).apiKey,
+            model: candidate.model,
+            prompt: consolidationPrompt(conversation, providerResponses),
+            images: latestImages,
+            maxOutputTokens: 1024,
+          });
+          if (!synthesis.text.trim()) throw new Error("Empty consolidated answer");
+          await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "success", usage: synthesis.usage, latencyMs: synthesis.latencyMs, providerRequestId: synthesis.providerRequestId });
+          consensus.consensus = synthesis.text.trim();
+          hasConsolidatedAnswer = true;
+          break;
+        } catch (error) {
+          logProviderError(error, { provider: candidate.provider, model: candidate.model, requestId, callKind: "synthesis" });
+          await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: Date.now() - startedAt });
+        }
       }
     }
     consensus.errors = errors;
