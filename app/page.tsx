@@ -1125,9 +1125,14 @@ export default function Home() {
 
           {isLoading && (
             <div className={styles.loadingRow}>
-              <div className={styles.loadingBubble}>
+              <div className={styles.loadingBubble} role="status" aria-live="polite" aria-atomic="true">
                 <span className={styles.messageRole}>Working</span>
-                <div className={styles.loader}>Asking {getEnabledProviderLabel(settings)}…</div>
+                <div className={styles.loader}>
+                  <span className={styles.loadingGraphic} aria-hidden="true">
+                    <span /><span /><span />
+                  </span>
+                  <span>Asking {getEnabledProviderLabel(settings)}…</span>
+                </div>
               </div>
             </div>
           )}
