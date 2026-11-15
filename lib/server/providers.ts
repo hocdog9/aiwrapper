@@ -36,6 +36,7 @@ export async function invokeProvider(input: {
   model: string;
   prompt: string;
   images?: ImageAttachment[];
+  maxOutputTokens?: number;
 }): Promise<ProviderResult> {
   const start = Date.now();
   const images = input.images ?? [];
@@ -43,7 +44,7 @@ export async function invokeProvider(input: {
     const client = new OpenAI({ apiKey: input.apiKey, timeout: TIMEOUT_MS, maxRetries: 0 });
     const response = await client.responses.create({
       model: input.model,
-      max_output_tokens: 1024,
+      max_output_tokens: input.maxOutputTokens ?? 1024,
       input: images.length
         ? [{ role: "user", content: [{ type: "input_text", text: input.prompt }, ...images.map((image) => ({ type: "input_image" as const, image_url: image.dataUrl, detail: "low" as const }))] }]
         : input.prompt,
@@ -61,7 +62,7 @@ export async function invokeProvider(input: {
     const response = await client.models.generateContent({
       model: input.model,
       contents: [{ role: "user", parts: [{ text: input.prompt }, ...images.map((image) => ({ inlineData: { mimeType: image.mimeType, data: image.dataUrl.split(",")[1] } }))] }],
-      config: { maxOutputTokens: 1024, temperature: 0.4 },
+      config: { maxOutputTokens: input.maxOutputTokens ?? 1024, temperature: 0.4 },
     });
     return {
       provider: input.provider, model: input.model, text: response.text || "",
@@ -88,7 +89,7 @@ export async function invokeProvider(input: {
   const anthropicContent: ContentBlockParam[] = [...anthropicImages, { type: "text", text: input.prompt }];
   const response = await client.messages.create({
     model: input.model,
-    max_tokens: 1024,
+    max_tokens: input.maxOutputTokens ?? 1024,
     stream: false,
     messages: [{ role: "user", content: anthropicContent }],
   });

@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
+import type { AnswerComparison } from "@/lib/answer-comparison";
 import { recentChatContext } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
@@ -35,6 +36,7 @@ type ChatTurn = {
 };
 
 type ResponsePayload = {
+  comparison?: AnswerComparison;
   consensus: string;
   agreementScore: number | null;
   summary: string;
@@ -227,7 +229,8 @@ function ConsensusDetails({
   disabled: boolean;
   defaultOpen?: boolean;
 }) {
-  const [showClaims, setShowClaims] = useState(false);
+  const comparison = result.comparison;
+  const comparisonSummary = comparison ? result.summary : "Comparison unavailable";
 
   if (result.responses.length === 1) {
     return <p className={styles.settingsNote}>Answered by {result.responses[0].provider} · Single-model answer</p>;
@@ -238,67 +241,56 @@ function ConsensusDetails({
     <div className={styles.consensusDetailsWrap}>
       <details className={styles.consensusDetails} open={defaultOpen}>
         <summary className={styles.consensusSummary}>
-          <span>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</span>
-          <span className={styles.consensusSummaryText}>{result.summary}</span>
+          <span>{comparisonSummary}</span>
+          <span className={styles.consensusSummaryText}>Compare reasoning and answers</span>
         </summary>
 
         <div className={styles.consensusBody}>
           <div className={styles.resultHeader}>
             <div>
               <p className={styles.mutedLabel}>Consensus</p>
-              <h3>{result.agreementScore !== null ? `${result.agreementScore}% model agreement` : "Low agreement"}</h3>
+              <h3>{comparisonSummary}</h3>
             </div>
             <div className={styles.resultActions}>
-              <span className={styles.agreementPill}>{result.summary}</span>
+              <span className={styles.agreementPill}>{result.responses.length} models responded</span>
             </div>
           </div>
 
           <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
 
-          <div className={styles.metaGrid}>
-            <div className={styles.metaCard}>
-              <h4>Where they agree</h4>
-              <ul>
-                {result.agreements.length ? result.agreements.map((item) => <li key={item}><span className={styles.claimMarker}>✓</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>Not enough shared evidence.</li>}
-              </ul>
-            </div>
-            <div className={styles.metaCard}>
-              <h4>Where they differ</h4>
-              <ul>
-                {result.disagreements.length ? result.disagreements.map((item) => <li key={item}><span className={styles.claimMarker}>!</span><span className={styles.claimBody}><FormattedMarkdown>{item}</FormattedMarkdown></span></li>) : <li>No material disagreements surfaced.</li>}
-              </ul>
-            </div>
-          </div>
-
-          <div className={styles.claimPanel}>
-            <div className={styles.panelHeadRow}>
-              <div>
-                <h4>Claim consensus</h4>
-                <span>{result.confidenceNote}</span>
+          {!comparison ? <p>Detailed comparison is unavailable for this answer. Review the individual answers below or retry.</p> : <>
+            {comparison.kind === "multiple_choice" && <div className={styles.metaCard}>
+              <h4>Answer choices</h4>
+              <ul>{comparison.votes.map(vote => <li key={vote.provider}>
+                <strong>{vote.provider}: {vote.choice ?? "No clear selection"}</strong>
+                {vote.quote && <blockquote>{vote.quote}</blockquote>}
+              </li>)}</ul>
+            </div>}
+            <div className={styles.metaGrid}>
+              <div className={styles.metaCard}>
+                <h4>Shared reasoning</h4>
+                {comparison.sharedReasoning.length ? comparison.sharedReasoning.map((point, index) => <div key={index}>
+                  <FormattedMarkdown>{point.point}</FormattedMarkdown>
+                  {point.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
+                </div>) : <p>No shared reasoning identified. This does not imply disagreement.</p>}
               </div>
-              <button
-                type="button"
-                className={styles.claimToggle}
-                aria-expanded={showClaims}
-                onClick={() => setShowClaims((current) => !current)}
-              >
-                {showClaims ? "Hide claims" : "Show claims"}
-              </button>
+              <div className={styles.metaCard}>
+                <h4>Conflicting claims</h4>
+                {comparison.conflicts.length ? comparison.conflicts.map((conflict, index) => <div key={index}>
+                  <FormattedMarkdown>{conflict.point}</FormattedMarkdown>
+                  {conflict.positions.map((position, i) => <div key={i}>
+                    <FormattedMarkdown>{position.claim}</FormattedMarkdown>
+                    {position.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
+                  </div>)}
+                </div>) : <p>No explicit conflicts identified in the responding models’ answers.</p>}
+              </div>
             </div>
-            {showClaims && (result.claims.length ? (
-              <ul className={styles.claimList}>
-                {result.claims.map((claim) => (
-                  <li key={claim.claim} className={styles.claimItem}>
-                    <span className={styles.claimBadge}>{claim.supportCount}/{claim.totalModels}</span>
-                    <span className={styles.claimText}>{claim.claim}</span>
-                    <span className={styles.claimStatus}>{claim.status}</span>
-                  </li>
-                ))}
-              </ul>
-            ) : (
-              <p className={styles.emptyNotes}>No discrete claim-level structure was extracted.</p>
-            ))}
-          </div>
+            {comparison.reasoningDifferences.length > 0 && <div className={styles.metaCard}>
+              <h4>Different explanations, not disagreements</h4>
+              <ul>{comparison.reasoningDifferences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
+            </div>}
+            <p className={styles.settingsNote}>{result.confidenceNote}</p>
+          </>}
 
           <div className={styles.providerPanel}>
             <h4>View individual answers</h4>
@@ -1104,6 +1096,7 @@ export default function Home() {
                 {(message.images ?? (message.image ? [message.image] : [])).map((image, imageIndex) => (
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}
+                {message.role === "assistant" && message.result?.comparison && <p><strong>{message.result.summary}</strong></p>}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
                 {message.role === "assistant" && message.result?.errors.length ? (
                   <div className={styles.partialProviderWarning} role="status">

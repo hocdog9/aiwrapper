@@ -21,6 +21,7 @@ test("multiple responses still produce a comparison", () => {
     { provider: "GPT", content: "The correct answer is B because plants absorb sunlight." },
     { provider: "Gemini", content: "The correct answer is B because plants absorb sunlight." },
   ], [], "request", "managed", 9);
-  assert.equal(result.agreementScore, 100);
-  assert.ok(result.claims.length > 0);
+  assert.equal(result.agreementScore, null);
+  assert.equal(result.summary, "Comparison unavailable");
+  assert.deepEqual(result.disagreements, []);
 });

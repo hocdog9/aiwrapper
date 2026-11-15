@@ -5,7 +5,7 @@ import { logProviderError } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
 import { recentChatContext, MAX_CONTEXT_MESSAGES } from "@/lib/chat-context";
-import { buildConsensusClaims } from "@/lib/consensus";
+import { comparisonPrompt, parseComparison, type AnswerComparison } from "@/lib/answer-comparison";
 import { enforceGuestLimits } from "./guest-limits";
 import { authenticateRequest } from "./auth";
 import { getBillingMode, resolveProviderCredential, type BillingMode } from "./credentials";
@@ -30,7 +30,8 @@ type ConsensusPayload = {
   agreements: string[];
   disagreements: string[];
   confidenceNote: string;
-  claims: ReturnType<typeof buildConsensusClaims>;
+  claims: never[];
+  comparison?: AnswerComparison;
   responses: Array<{ provider: ProviderName; content: string }>;
   errors: SafeProviderError[];
   requestId: string;
@@ -95,17 +96,6 @@ function buildPrompt(messages: ChatMessage[]): string {
   return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Answer directly and helpfully.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
 }
 
-function buildConsolidationPrompt(messages: ChatMessage[], responses: Array<{ provider: ProviderName; content: string }>): string {
-  const question = messages[messages.length - 1]?.content ?? "";
-  const answerSet = responses.map((response) => `${response.provider} answer:\n${response.content}`).join("\n\n");
-  return `Consolidate the following answers into one clear, accurate response. Keep the strongest points from both, remove repetition, and make the final answer concise while preserving the key reasoning and explanation.\n\nOriginal question:\n${question}\n\nAnswers to consolidate:\n${answerSet}\n\nReturn only the consolidated answer. Do not mention the models or the consolidation process.`;
-}
-
-function formatConsensusText(claims: Array<{ claim: string; supportCount: number; totalModels: number }>): string {
-  if (!claims.length) return "The model responses are too divergent to reduce to a clean single summary.";
-  return `The strongest shared pattern is:\n\n${claims.slice(0, 3).map((claim) => `${claim.supportCount}/${claim.totalModels} agree — ${claim.claim}`).join("\n\n")}`;
-}
-
 export function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {
   if (responses.length === 1) {
     return {
@@ -118,16 +108,12 @@ export function makeResponse(responses: Array<{ provider: ProviderName; content:
       usage: { creditCharged: 1, creditsRemaining },
     };
   }
-  const claims = buildConsensusClaims(responses);
-  const agreementScore = claims.length
-    ? Math.min(100, Math.max(0, Math.round((claims.reduce((sum, item) => sum + item.supportCount, 0) / (claims.length * responses.length)) * 100)))
-    : null;
-  const agreements = claims.filter((item) => item.supportCount >= 2).slice(0, 3).map((item) => item.claim);
-  const disagreements = claims.filter((item) => item.supportCount <= 1).slice(0, 3).map((item) => item.claim);
-  const summary = agreementScore === null ? "No consensus available" : agreementScore >= 75 ? "High model agreement" : agreementScore >= 45 ? "Moderate model agreement" : "Models disagree";
-  const confidenceNote = agreementScore === null ? "No reliable agreement signal" : agreementScore >= 75 ? "The responses converge on the same broad direction, but not necessarily the same certainty level." : agreementScore >= 45 ? "The models mostly align on core trade-offs, with some meaningful nuance." : "The models diverge on key assumptions, so the final result should be treated as provisional.";
   return {
-    consensus: formatConsensusText(claims), agreementScore, summary, agreements, disagreements, confidenceNote, claims, responses, errors, requestId,
+    consensus: responses.map(r => `### ${r.provider}\n\n${r.content}`).join("\n\n"),
+    agreementScore: null, summary: "Comparison unavailable",
+    agreements: [], disagreements: [], claims: [],
+    confidenceNote: "The answers have not been compared. Review the individual responses.",
+    responses, errors, requestId,
     usage: { creditCharged: billingMode === "managed" ? 1 : 0, creditsRemaining },
   };
 }
@@ -259,10 +245,16 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
           provider: candidate.provider,
           apiKey: (await resolveProviderCredential(context, candidate.provider, billingMode)).apiKey,
           model: candidate.model,
-          prompt: buildConsolidationPrompt(cleaned.messages, providerResponses),
+          prompt: comparisonPrompt(cleaned.messages.map(m => `${m.role}: ${m.content}`).join("\n"), providerResponses),
+          images: latestImages,
+          maxOutputTokens: 4096,
         });
+        const comparison = parseComparison(synthesis.text, providerResponses);
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "success", usage: synthesis.usage, latencyMs: synthesis.latencyMs, providerRequestId: synthesis.providerRequestId });
-        if (synthesis.text) consensus.consensus = synthesis.text;
+        consensus.consensus = comparison.answer;
+        consensus.comparison = comparison.comparison;
+        consensus.summary = comparison.summary;
+        consensus.confidenceNote = "AI comparison of the responding models, supported by excerpts. Agreement does not establish correctness.";
         break;
       } catch (error) {
         logProviderError(error, { provider: candidate.provider, model: candidate.model, requestId, callKind: "synthesis" });
