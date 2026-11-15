@@ -258,7 +258,12 @@ function ConsensusDetails({
 
           <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
 
-          {!comparison ? <p>Detailed comparison is unavailable for this answer. Review the individual answers below or retry.</p> : <>
+          {!comparison ? <p>Detailed comparison is unavailable for this answer. Review the individual answers below or retry.</p> : <details className={styles.consensusDetails} open={defaultOpen}>
+            <summary className={styles.consensusSummary}>
+              <span>Answer breakdown</span>
+              <span className={styles.consensusSummaryText}>Choices, reasoning and differences</span>
+            </summary>
+            <div className={styles.consensusBody}>
             {comparison.kind === "multiple_choice" && <div className={styles.metaCard}>
               <h4>Answer choices</h4>
               <ul>{comparison.votes.map(vote => <li key={vote.provider}>
@@ -290,7 +295,8 @@ function ConsensusDetails({
               <ul>{comparison.reasoningDifferences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
             </div>}
             <p className={styles.settingsNote}>{result.confidenceNote}</p>
-          </>}
+            </div>
+          </details>}
 
           <div className={styles.providerPanel}>
             <h4>View individual answers</h4>

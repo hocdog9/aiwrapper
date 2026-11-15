@@ -1194,3 +1194,24 @@
   font-weight: 600;
   padding: 8px 0 16px;
 }
+
+/* Direct-child selectors keep nested disclosure arrows independent. */
+.consensusSummary::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  flex-shrink: 0;
+  border-right: 2px solid currentColor;
+  border-bottom: 2px solid currentColor;
+  transform: rotate(-45deg);
+}
+
+.consensusDetails[open] > .consensusSummary::after {
+  transform: rotate(45deg);
+}
+
+.consensusSummary:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: -4px;
+  border-radius: 12px;
+}
