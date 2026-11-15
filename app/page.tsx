@@ -1105,11 +1105,9 @@ export default function Home() {
                 ))}
                 {message.role === "assistant" && message.result?.comparison && <p><strong>{message.result.summary}</strong></p>}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
-                {message.role === "assistant" && message.result?.errors.length ? (
+                {message.role === "assistant" && message.result?.errors.some(item => item.provider !== "Comparison") ? (
                   <div className={styles.partialProviderWarning} role="status">
-                    {message.result.errors.every(item => item.provider === "Comparison")
-                      ? message.result.errors.map(item => item.message).join(" ")
-                      : <>{message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}</>}
+                    {message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.filter(item => item.provider !== "Comparison").map((item) => `${item.provider}: ${item.message}`).join(" ")}
                     <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>Change models</button>
                   </div>
                 ) : null}
