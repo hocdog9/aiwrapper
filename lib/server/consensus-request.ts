@@ -1,6 +1,6 @@
 import "server-only";
 
-import { readSynthesis, consolidationPrompt } from "./synthesis";
+import { readSynthesis, consolidationPrompt, finalResponseErrors } from "./synthesis";
 import { requestFingerprint } from "./request-fingerprint";
 import { logProviderError } from "./provider-diagnostics";
 
@@ -240,6 +240,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     }
 
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
+    const synthesisErrors: SafeProviderError[] = [];
     let hasConsolidatedAnswer = successful.length === 1;
     const conversation = cleaned.messages.map(m => `${m.role}: ${m.content}`).join("\n");
     for (const candidate of successful.length > 1 ? successful : []) {
@@ -269,7 +270,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         const message = error instanceof Error && error.message === "Comparison structure or source evidence did not validate"
           ? "The detailed comparison could not be verified. The consolidated answer is shown when available."
           : safeProviderError(error);
-        errors.push({ provider: `${candidate.provider} synthesis`, message });
+        synthesisErrors.push({ provider: `${candidate.provider} synthesis`, message });
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: 0 });
       }
     }
@@ -297,10 +298,10 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         }
       }
     }
-    consensus.errors = errors;
+    consensus.errors = finalResponseErrors(errors, synthesisErrors, Boolean(consensus.comparison));
 
     const { data: completed, error: completeError } = await context.adminClient.rpc("finish_chat_request", {
-      p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: errors.length > 0,
+      p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: consensus.errors.length > 0,
     });
     if (completeError || !completed) throw new Error("Could not safely finalize this request.");
     reservedRequestId = null;

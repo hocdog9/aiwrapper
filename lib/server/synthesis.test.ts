@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readSynthesis, consolidationPrompt } from "./synthesis";
+import { readSynthesis, consolidationPrompt, finalResponseErrors } from "./synthesis";
 import { makeResponse } from "./consensus-request";
 
 const sources = [
@@ -33,4 +33,15 @@ test("exhausted synthesis never dumps all provider answers into the main answer"
   assert.ok(!result.consensus.includes(sources[0].content));
   assert.deepEqual(result.responses, sources);
   assert.match(result.consensus, /could not be generated/);
+});
+
+test("successful comparison fallback clears recovered errors from final billing and UI state", () => {
+  const attempts = [{ provider: "GPT synthesis", message: "Invalid comparison" }, { provider: "Gemini synthesis", message: "Invalid comparison" }];
+  assert.deepEqual(finalResponseErrors([], attempts, true), []);
+  // A missing original answer must remain visible even if comparison recovers.
+  const missing = [{ provider: "Gemini", message: "Unavailable" }];
+  assert.deepEqual(finalResponseErrors(missing, attempts, true), missing);
+  // A readable summary alone does not recover the failed comparison.
+  assert.deepEqual(finalResponseErrors([], attempts, false), attempts);
+  assert.equal(attempts.length, 2);
 });
