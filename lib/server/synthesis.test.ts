@@ -45,3 +45,48 @@ test("successful comparison fallback clears recovered errors from final billing 
   assert.deepEqual(finalResponseErrors([], attempts, false), attempts);
   assert.equal(attempts.length, 2);
 });
+
+test("one unverifiable shared quote preserves all verified answer choices", () => {
+  const result = readSynthesis(JSON.stringify({ answer: "Total revenue rises by 10%.", comparison: {
+    kind: "multiple_choice",
+    votes: sources.map(s => ({ provider: s.provider, choice: "A", quote: s.content })),
+    sharedReasoning: [{ point: "Revenue rises", evidence: sources.map(s => ({ provider: s.provider, quote: "invented excerpt" })) }],
+    conflicts: [], reasoningDifferences: [],
+  } }), sources);
+  assert.equal(result.summary, "2 of 2 models chose A");
+  assert.equal(result.comparison?.sharedReasoning.length, 0);
+  assert.ok(result.comparison?.issues?.length);
+  assert.ok(result.error);
+});
+
+test("open-ended null option placeholders do not discard a valid reasoning comparison", () => {
+  const result = readSynthesis(JSON.stringify({ answer: "Revenue rises.", comparison: {
+    kind: "open_ended",
+    votes: sources.map(s => ({ provider: s.provider, choice: null, quote: "" })),
+    sharedReasoning: [], conflicts: [], reasoningDifferences: [],
+  } }), sources);
+  assert.equal(result.error, undefined);
+  assert.deepEqual(result.comparison?.votes, []);
+});
+
+test("unverified conflicts remain explicitly incomplete rather than implied agreement", () => {
+  const result = readSynthesis(JSON.stringify({ answer: "The predictions differ.", comparison: {
+    kind: "open_ended", votes: [], sharedReasoning: [],
+    conflicts: [{ point: "Revenue change", positions: [{ claim: "Rise", evidence: [] }] }],
+    reasoningDifferences: [],
+  } }), sources);
+  assert.equal(result.summary, "Comparison partially available");
+  assert.ok(result.error);
+  assert.match(result.comparison!.issues![0], /does not establish agreement/);
+});
+
+test("unverified votes are not counted when other sections are recovered", () => {
+  const result = readSynthesis(JSON.stringify({ answer: "Revenue rises.", comparison: {
+    kind: "multiple_choice",
+    votes: sources.map(s => ({ provider: s.provider, choice: "A", quote: s.provider === "GPT" ? "fabricated" : s.content })),
+    sharedReasoning: [], conflicts: [], reasoningDifferences: [],
+  } }), sources);
+  assert.equal(result.summary, "1 of 2 models chose A · 1 unclear");
+  assert.equal(result.comparison!.votes[0].choice, null);
+  assert.ok(result.error);
+});

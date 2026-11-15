@@ -1,4 +1,4 @@
-import { parseComparison, type AnswerSource } from "../answer-comparison";
+import { parseComparison, recoverComparison, type AnswerSource } from "../answer-comparison";
 
 /** Keep the readable answer even when the separate evidence validation fails. */
 export function readSynthesis(text: string, sources: AnswerSource[]) {
@@ -10,6 +10,11 @@ export function readSynthesis(text: string, sources: AnswerSource[]) {
   try {
     return { ...parseComparison(text, sources), error: undefined };
   } catch (error) {
+    try {
+      const recovered = recoverComparison(text, sources);
+      return { ...recovered, error: recovered.comparison.issues?.length
+        ? (error instanceof Error ? error : new Error("Comparison validation failed")) : undefined };
+    } catch { /* No usable comparison structure; retain only the answer. */ }
     return { answer, comparison: undefined, summary: undefined,
       error: error instanceof Error ? error : new Error("Invalid answer comparison") };
   }

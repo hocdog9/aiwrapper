@@ -259,6 +259,12 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
           hasConsolidatedAnswer = true;
         }
         await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "success", usage: synthesis.usage, latencyMs: synthesis.latencyMs, providerRequestId: synthesis.providerRequestId });
+        if (comparison.comparison && (!consensus.comparison ||
+            (comparison.comparison.issues?.length ?? 0) < (consensus.comparison.issues?.length ?? 0))) {
+          consensus.comparison = comparison.comparison;
+          consensus.summary = comparison.summary!;
+          consensus.confidenceNote = "AI comparison of responding models. Some details may be unavailable; agreement does not establish correctness.";
+        }
         if (comparison.error) throw comparison.error;
         consensus.consensus = comparison.answer!;
         consensus.comparison = comparison.comparison;
@@ -267,7 +273,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         break;
       } catch (error) {
         logProviderError(error, { provider: candidate.provider, model: candidate.model, requestId, callKind: "synthesis" });
-        const message = error instanceof Error && error.message === "Comparison structure or source evidence did not validate"
+        const message = error instanceof Error && error.message.startsWith("Comparison validation:")
           ? "The detailed comparison could not be verified. The consolidated answer is shown when available."
           : safeProviderError(error);
         synthesisErrors.push({ provider: `${candidate.provider} synthesis`, message });
@@ -298,7 +304,14 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
         }
       }
     }
-    consensus.errors = finalResponseErrors(errors, synthesisErrors, Boolean(consensus.comparison));
+    const comparisonComplete = Boolean(consensus.comparison) && !consensus.comparison?.issues?.length;
+    const unresolvedComparison = synthesisErrors.length ? [{
+      provider: "Comparison",
+      message: hasConsolidatedAnswer
+        ? "The consolidated answer is ready, but some comparison details could not be verified. No request was charged."
+        : "A consolidated answer and comparison could not be completed. No request was charged.",
+    }] : [];
+    consensus.errors = finalResponseErrors(errors, unresolvedComparison, comparisonComplete);
 
     const { data: completed, error: completeError } = await context.adminClient.rpc("finish_chat_request", {
       p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: consensus.errors.length > 0,

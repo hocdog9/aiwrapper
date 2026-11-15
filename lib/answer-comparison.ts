@@ -1,6 +1,7 @@
 export type AnswerSource = { provider: string; content: string };
 export type Evidence = { provider: string; quote: string };
 export type AnswerComparison = {
+  issues?: string[];
   kind: "multiple_choice" | "open_ended";
   votes: Array<{ provider: string; choice: string | null; quote: string }>;
   sharedReasoning: Array<{ point: string; evidence: Evidence[] }>;
@@ -13,7 +14,7 @@ export function comparisonPrompt(conversation: string, responses: AnswerSource[]
 {"answer":"one consolidated answer, 80–150 words maximum, shorter for simple questions, preserving unresolved conflicts", "comparison":{"kind":"multiple_choice or open_ended","votes":[{"provider":"exact provider name","choice":"option label or null","quote":"exact supporting excerpt"}],"sharedReasoning":[{"point":"shared claim","evidence":[{"provider":"name","quote":"exact excerpt"}]}],"conflicts":[{"point":"specific disputed proposition","positions":[{"claim":"one position","evidence":[{"provider":"name","quote":"exact excerpt"}]}]}],"reasoningDifferences":["attributed differences in explanation, scope or detail that are NOT contradictions"]}}
 Rules:
 - Compare semantic conclusions, never word overlap. Agreement is not proof of correctness. Do not output percentages.
-- Multiple choice: record exactly one vote per responding provider. Use a canonical option label (A, B, etc., or the supplied numeric label). When options are unlabelled, assign A, B, C in the order presented in the question; use the same mapping for every vote. Only count an unambiguous final selection, including an answer that clearly matches option text. If ambiguous, conditional, missing, or multiple selections, use null and an empty quote. Do not infer votes from merely mentioning an option. Use open_ended when there is no choice question.
+- Multiple choice: record exactly one vote per responding provider. Use a canonical option label (A, B, etc., or the supplied numeric label). When options are unlabelled, assign A, B, C in the order presented in the question; use the same mapping for every vote. Only count an unambiguous final selection, including an answer that clearly matches option text. If ambiguous, conditional, missing, or multiple selections, use null and an empty quote. Do not infer votes from merely mentioning an option. Use open_ended when there is no choice question and return votes: [] in that case.
 - Shared reasoning needs supporting exact excerpts from at least two providers.
 - A conflict requires at least two explicitly incompatible claims under the SAME assumptions, time and scope, with exact excerpts and attribution on both sides. Missing details, different wording, uncertainty, and complementary explanations are NOT conflicts. An unmentioned claim is not a rejection.
 - Separate answer choice agreement from reasoning agreement. Models can choose the same option but disagree on reasoning.
@@ -28,13 +29,13 @@ const normalize = (text: string) => text.normalize("NFKC").replace(/[*_`]/g, "")
 export function parseComparison(text: string, sources: AnswerSource[]): { answer: string; comparison: AnswerComparison; summary: string } {
   const parsed = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
   const c = parsed.comparison as AnswerComparison;
-  const fail = (): never => { throw new Error("Comparison structure or source evidence did not validate"); };
+  const fail = (reason = "invalid comparison structure"): never => { throw new Error(`Comparison validation: ${reason}`); };
   if (typeof parsed.answer !== "string" || !parsed.answer.trim() || !c || !["multiple_choice", "open_ended"].includes(c.kind)) fail();
   const evidence = (items: Evidence[], minimum: number) => {
     if (!Array.isArray(items) || items.length < minimum || new Set(items.map(e => e?.provider)).size !== items.length) fail();
     for (const e of items) {
       const source = sources.find(s => s.provider === e?.provider);
-      if (!source || typeof e.quote !== "string" || !normalize(e.quote) || !normalize(source.content).includes(normalize(e.quote))) fail();
+      if (!source || typeof e.quote !== "string" || !normalize(e.quote) || !normalize(source.content).includes(normalize(e.quote))) fail(`source excerpt mismatch for ${source?.provider ?? "unknown provider"}`);
     }
   };
   if (!Array.isArray(c.votes) || !Array.isArray(c.sharedReasoning) || !Array.isArray(c.conflicts) || !Array.isArray(c.reasoningDifferences)) fail();
@@ -47,7 +48,7 @@ export function parseComparison(text: string, sources: AnswerSource[]): { answer
         evidence([{ provider: v.provider, quote: v.quote }], 1);
       }
     }
-  } else if (c.votes.length) fail();
+  } else if (c.votes.length) fail("open-ended comparison must have no option votes");
   for (const shared of c.sharedReasoning) {
     if (typeof shared.point !== "string" || !shared.point.trim()) fail();
     evidence(shared.evidence, 2);
@@ -75,4 +76,58 @@ export function parseComparison(text: string, sources: AnswerSource[]): { answer
     if (unclear) summary += ` · ${unclear} unclear`;
   }
   return { answer: parsed.answer.trim(), comparison: c, summary };
+}
+
+
+// Salvage independently validated sections without presenting omitted conflicts as agreement.
+export function recoverComparison(text: string, sources: AnswerSource[]) {
+  const value = JSON.parse(text.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, ""));
+  const raw = value?.comparison;
+  if (!raw || !["multiple_choice", "open_ended"].includes(raw.kind) || typeof value.answer !== "string" || !value.answer.trim()) {
+    throw new Error("Comparison validation: missing answer or comparison kind");
+  }
+  const issues: string[] = [];
+  const c: AnswerComparison = {
+    kind: raw.kind, votes: raw.kind === "multiple_choice"
+      ? sources.map(s => ({ provider: s.provider, choice: null, quote: "" })) : [],
+    sharedReasoning: [], conflicts: [], reasoningDifferences: [],
+  };
+  const validate = (candidate: AnswerComparison) => parseComparison(JSON.stringify({ answer: value.answer, comparison: candidate }), sources);
+  if (c.kind === "multiple_choice") {
+    for (const source of sources) {
+      const matches = Array.isArray(raw.votes) ? raw.votes.filter((v: { provider?: string } | null) => v?.provider === source.provider) : [];
+      try {
+        if (matches.length !== 1) throw new Error("missing or duplicate vote");
+        const candidate = { ...c, votes: c.votes.map(v => v.provider === source.provider ? matches[0] : v) };
+        validate(candidate);
+        c.votes = candidate.votes;
+      } catch {
+        issues.push(`${source.provider}'s answer choice could not be verified.`);
+      }
+    }
+  }
+  for (const section of ["sharedReasoning", "conflicts"] as const) {
+    if (!Array.isArray(raw[section])) {
+      issues.push(`The ${section === "conflicts" ? "conflicting claims" : "shared reasoning"} section could not be verified.`);
+      continue;
+    }
+    for (const item of raw[section]) {
+      try {
+        const candidate = { ...c, [section]: [...c[section], item] };
+        validate(candidate);
+        Object.assign(c, { [section]: candidate[section] });
+      } catch {
+        issues.push(section === "conflicts"
+          ? "A possible conflict could not be verified; absence of listed conflicts does not establish agreement."
+          : "A shared reasoning point was omitted because its supporting excerpts could not be verified.");
+      }
+    }
+  }
+  if (Array.isArray(raw.reasoningDifferences) && raw.reasoningDifferences.every((d: unknown) => typeof d === "string")) {
+    c.reasoningDifferences = raw.reasoningDifferences;
+  } else issues.push("Differences in explanation could not be verified.");
+  const result = validate(c);
+  c.issues = [...new Set(issues)];
+  return { ...result, comparison: c, summary: c.kind === "open_ended" && issues.length && !c.conflicts.length
+    ? "Comparison partially available" : result.summary };
 }

@@ -264,6 +264,7 @@ function ConsensusDetails({
               <span className={styles.consensusSummaryText}>Choices, reasoning and differences</span>
             </summary>
             <div className={styles.consensusBody}>
+            {comparison.issues?.length ? <p className={styles.settingsNote}>Some comparison details could not be verified. The available evidence is shown below.</p> : null}
             {comparison.kind === "multiple_choice" && <div className={styles.metaCard}>
               <h4>Answer choices</h4>
               <ul>{comparison.votes.map(vote => <li key={vote.provider}>
@@ -287,7 +288,7 @@ function ConsensusDetails({
                     <FormattedMarkdown>{position.claim}</FormattedMarkdown>
                     {position.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
                   </div>)}
-                </div>) : <p>No explicit conflicts identified in the responding models’ answers.</p>}
+                </div>) : <p>{comparison.issues?.length ? "The conflict check is incomplete. Do not interpret this as agreement." : "No explicit conflicts identified in the responding models’ answers."}</p>}
               </div>
             </div>
             {comparison.reasoningDifferences.length > 0 && <div className={styles.metaCard}>
@@ -1106,7 +1107,9 @@ export default function Home() {
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
                 {message.role === "assistant" && message.result?.errors.length ? (
                   <div className={styles.partialProviderWarning} role="status">
-                    {message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}
+                    {message.result.errors.every(item => item.provider === "Comparison")
+                      ? message.result.errors.map(item => item.message).join(" ")
+                      : <>{message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.map((item) => `${item.provider}: ${item.message}`).join(" ")}</>}
                     <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>Change models</button>
                   </div>
                 ) : null}
