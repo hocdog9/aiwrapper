@@ -1264,3 +1264,9 @@
   display: grid;
   gap: 12px;
 }
+
+.comparisonStatus {
+  margin: 0;
+  font-size: 0.875rem;
+  line-height: 1.5;
+}

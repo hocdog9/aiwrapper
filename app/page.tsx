@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
+import { comparisonStatus } from "@/lib/comparison-status";
 import type { AnswerComparison } from "@/lib/answer-comparison";
 import { recentChatContext } from "@/lib/chat-context";
 import { supabase } from "@/lib/supabase";
@@ -36,6 +37,7 @@ type ChatTurn = {
 };
 
 type ResponsePayload = {
+  attemptedProviderCount?: number;
   comparison?: AnswerComparison;
   consensus: string;
   agreementScore: number | null;
@@ -218,20 +220,15 @@ function hydrateSessionResults(session: ChatSession): ChatSession {
   };
 }
 
-function ComparisonBreakdown({ comparison, defaultOpen }: { comparison: AnswerComparison; defaultOpen: boolean }) {
+function ComparisonBreakdown({ comparison }: { comparison: AnswerComparison }) {
   if (comparison.kind === "multi_question") {
     return <div className={styles.questionBreakdowns}>
       {comparison.questions?.map((question, index) => (
-        <details key={index} className={styles.consensusDetails} open={defaultOpen}>
-          <summary className={styles.consensusSummary}>
-            <span>{index + 1}. {question.question}</span>
-            <span className={styles.consensusSummaryText}>{question.summary}</span>
-          </summary>
-          <div className={styles.consensusBody}>
-            <FormattedMarkdown>{question.answer}</FormattedMarkdown>
-            <ComparisonBreakdown comparison={question.comparison} defaultOpen={defaultOpen} />
-          </div>
-        </details>
+        <section key={index}>
+          <h4>{index + 1}. {question.question}</h4>
+          <p className={styles.settingsNote}>{question.summary}</p>
+          <ComparisonBreakdown comparison={question.comparison} />
+        </section>
       ))}
     </div>;
   }
@@ -282,44 +279,24 @@ function ConsensusDetails({
   defaultOpen?: boolean;
 }) {
   const comparison = result.comparison;
-  const comparisonSummary = comparison ? result.summary : "Comparison unavailable";
+
 
   if (result.responses.length === 1) {
-    return <p className={styles.settingsNote}>Answered by {result.responses[0].provider} · Single-model answer</p>;
+    return <p className={styles.settingsNote}>{comparisonStatus(result)}</p>;
   }
 
 
   return (
     <div className={styles.consensusDetailsWrap}>
+      <p className={styles.comparisonStatus}>{comparisonStatus(result)}</p>
       <details className={styles.consensusDetails} open={defaultOpen}>
         <summary className={styles.consensusSummary}>
-          <span>{comparisonSummary}</span>
-          <span className={styles.consensusSummaryText}>Compare reasoning and answers</span>
+          <span>Compare models</span>
         </summary>
 
         <div className={styles.consensusBody}>
-          <div className={styles.resultHeader}>
-            <div>
-              <p className={styles.mutedLabel}>Consensus</p>
-              <h3>{comparisonSummary}</h3>
-            </div>
-            <div className={styles.resultActions}>
-              <span className={styles.agreementPill}>{result.responses.length} models responded</span>
-            </div>
-          </div>
-
-          <div className={styles.resultBody}><FormattedMarkdown>{result.consensus}</FormattedMarkdown></div>
-
-          {!comparison ? <p>Detailed comparison is unavailable for this answer. Review the individual answers below or retry.</p> : <details className={styles.consensusDetails} open={defaultOpen}>
-            <summary className={styles.consensusSummary}>
-              <span>Answer breakdown</span>
-              <span className={styles.consensusSummaryText}>Choices, reasoning and differences</span>
-            </summary>
-            <div className={styles.consensusBody}>
-            <ComparisonBreakdown comparison={comparison} defaultOpen={defaultOpen} />
-            <p className={styles.settingsNote}>{result.confidenceNote}</p>
-            </div>
-          </details>}
+          {comparison ? <ComparisonBreakdown comparison={comparison} /> :
+            <p>Detailed comparison is unavailable for this answer. Review the individual answers below or retry.</p>}
 
           <div className={styles.providerPanel}>
             <h4>View individual answers</h4>
@@ -1125,7 +1102,6 @@ export default function Home() {
                 {(message.images ?? (message.image ? [message.image] : [])).map((image, imageIndex) => (
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}
-                {message.role === "assistant" && message.result?.comparison && <p><strong>{message.result.summary}</strong></p>}
                 <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
                 {message.role === "assistant" && message.result?.errors.some(item => item.provider !== "Comparison") ? (
                   <div className={styles.partialProviderWarning} role="status">

@@ -33,6 +33,7 @@ type ConsensusPayload = {
   confidenceNote: string;
   claims: never[];
   comparison?: AnswerComparison;
+  attemptedProviderCount?: number;
   responses: Array<{ provider: ProviderName; content: string }>;
   errors: SafeProviderError[];
   requestId: string;
@@ -240,6 +241,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     }
 
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
+    consensus.attemptedProviderCount = selectedProviders.length;
     const synthesisErrors: SafeProviderError[] = [];
     let hasConsolidatedAnswer = successful.length === 1;
     const conversation = cleaned.messages.map(m => `${m.role}: ${m.content}`).join("\n");
