@@ -1259,3 +1259,8 @@
     opacity: 0.7;
   }
 }
+
+.questionBreakdowns {
+  display: grid;
+  gap: 12px;
+}

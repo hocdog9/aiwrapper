@@ -94,7 +94,7 @@ export function cleanMessages(value: unknown): { messages: ChatMessage[]; error?
 
 function buildPrompt(messages: ChatMessage[]): string {
   const recent = messages.map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").trim()}${message.images?.length ? "\n[Image attached]" : ""}`).join("\n\n");
-  return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Answer directly and helpfully.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
+  return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Answer directly and helpfully. For multiple questions, answer every question separately in a numbered list in original order, including the answer text rather than just an option letter.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
 }
 
 export function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {

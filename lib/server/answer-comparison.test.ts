@@ -63,3 +63,52 @@ test("malformed comparison fails closed", () => {
     assert.throws(() => parseComparison(text, sources));
   }
 });
+
+test("five-question batch produces five numbered consolidated answers and separate votes", () => {
+  const answers = [
+    "a 10% increase in total revenue",
+    "equal to average revenue",
+    "average total cost is minimized",
+    "price equals average total cost",
+    "monopolistic competition",
+  ];
+  const batchSources = sources.map(s => ({
+    provider: s.provider,
+    content: answers.map((a, i) => `${i + 1}. ${a}`).join("\n"),
+  }));
+  const questions = answers.map((answer, i) => ({
+    question: `Question ${i + 1}`, answer,
+    comparison: {
+      kind: "multiple_choice", votes: batchSources.map(s => ({
+        provider: s.provider, choice: i === 4 ? "C" : "A", quote: `${i + 1}. ${answer}`,
+      })), sharedReasoning: [], conflicts: [], reasoningDifferences: [],
+    },
+  }));
+  const result = parseComparison(JSON.stringify({ answer: "Ignored paragraph", comparison: { kind: "multi_question", questions } }), batchSources);
+  assert.equal(result.comparison.questions?.length, 5);
+  assert.equal(result.summary, "5 questions · compared individually");
+  for (const [i, answer] of answers.entries()) assert.ok(result.answer.includes(`${i + 1}. ${answer}`));
+  assert.equal(result.comparison.questions![4].summary, "3 of 3 models chose C");
+  assert.ok(!result.answer.includes("No clear option"));
+});
+
+test("batch votes are independent: a missing answer and disagreement stay with their question", () => {
+  const questions = [0, 1].map(i => ({
+    question: `Question ${i + 1}`, answer: "A",
+    comparison: fixture(),
+  }));
+  questions[1].comparison.votes[1].choice = "B";
+  questions[1].comparison.votes[2].choice = null;
+  const result = parseComparison(JSON.stringify({ comparison: { kind: "multi_question", questions } }), sources);
+  assert.equal(result.comparison.questions![0].summary, "3 of 3 models chose A");
+  assert.equal(result.comparison.questions![1].summary, "1 of 3 models chose A · 1 of 3 models chose B · 1 unclear");
+});
+
+test("nested batches and empty question answers are rejected", () => {
+  for (const question of [
+    { question: "Q", answer: "", comparison: fixture() },
+    { question: "Q", answer: "A", comparison: { kind: "multi_question", questions: [] } },
+  ]) {
+    assert.throws(() => parseComparison(JSON.stringify({ comparison: { kind: "multi_question", questions: [question, question] } }), sources));
+  }
+});

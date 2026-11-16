@@ -218,6 +218,58 @@ function hydrateSessionResults(session: ChatSession): ChatSession {
   };
 }
 
+function ComparisonBreakdown({ comparison, defaultOpen }: { comparison: AnswerComparison; defaultOpen: boolean }) {
+  if (comparison.kind === "multi_question") {
+    return <div className={styles.questionBreakdowns}>
+      {comparison.questions?.map((question, index) => (
+        <details key={index} className={styles.consensusDetails} open={defaultOpen}>
+          <summary className={styles.consensusSummary}>
+            <span>{index + 1}. {question.question}</span>
+            <span className={styles.consensusSummaryText}>{question.summary}</span>
+          </summary>
+          <div className={styles.consensusBody}>
+            <FormattedMarkdown>{question.answer}</FormattedMarkdown>
+            <ComparisonBreakdown comparison={question.comparison} defaultOpen={defaultOpen} />
+          </div>
+        </details>
+      ))}
+    </div>;
+  }
+  return <>
+            {comparison.issues?.length ? <p className={styles.settingsNote}>Some comparison details could not be verified. The available evidence is shown below.</p> : null}
+            {comparison.kind === "multiple_choice" && <div className={styles.metaCard}>
+              <h4>Answer choices</h4>
+              <ul>{comparison.votes.map(vote => <li key={vote.provider}>
+                <strong>{vote.provider}: {vote.choice ?? "No clear selection"}</strong>
+                {vote.quote && <blockquote>{vote.quote}</blockquote>}
+              </li>)}</ul>
+            </div>}
+            <div className={styles.metaGrid}>
+              <div className={styles.metaCard}>
+                <h4>Shared reasoning</h4>
+                {comparison.sharedReasoning.length ? comparison.sharedReasoning.map((point, index) => <div key={index}>
+                  <FormattedMarkdown>{point.point}</FormattedMarkdown>
+                  {point.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
+                </div>) : <p>No shared reasoning identified. This does not imply disagreement.</p>}
+              </div>
+              <div className={styles.metaCard}>
+                <h4>Conflicting claims</h4>
+                {comparison.conflicts.length ? comparison.conflicts.map((conflict, index) => <div key={index}>
+                  <FormattedMarkdown>{conflict.point}</FormattedMarkdown>
+                  {conflict.positions.map((position, i) => <div key={i}>
+                    <FormattedMarkdown>{position.claim}</FormattedMarkdown>
+                    {position.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
+                  </div>)}
+                </div>) : <p>{comparison.issues?.length ? "The conflict check is incomplete. Do not interpret this as agreement." : "No explicit conflicts identified in the responding models’ answers."}</p>}
+              </div>
+            </div>
+            {comparison.reasoningDifferences.length > 0 && <div className={styles.metaCard}>
+              <h4>Different explanations, not disagreements</h4>
+              <ul>{comparison.reasoningDifferences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
+            </div>}
+  </>;
+}
+
 function ConsensusDetails({
   result,
   onRetry,
@@ -264,37 +316,7 @@ function ConsensusDetails({
               <span className={styles.consensusSummaryText}>Choices, reasoning and differences</span>
             </summary>
             <div className={styles.consensusBody}>
-            {comparison.issues?.length ? <p className={styles.settingsNote}>Some comparison details could not be verified. The available evidence is shown below.</p> : null}
-            {comparison.kind === "multiple_choice" && <div className={styles.metaCard}>
-              <h4>Answer choices</h4>
-              <ul>{comparison.votes.map(vote => <li key={vote.provider}>
-                <strong>{vote.provider}: {vote.choice ?? "No clear selection"}</strong>
-                {vote.quote && <blockquote>{vote.quote}</blockquote>}
-              </li>)}</ul>
-            </div>}
-            <div className={styles.metaGrid}>
-              <div className={styles.metaCard}>
-                <h4>Shared reasoning</h4>
-                {comparison.sharedReasoning.length ? comparison.sharedReasoning.map((point, index) => <div key={index}>
-                  <FormattedMarkdown>{point.point}</FormattedMarkdown>
-                  {point.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
-                </div>) : <p>No shared reasoning identified. This does not imply disagreement.</p>}
-              </div>
-              <div className={styles.metaCard}>
-                <h4>Conflicting claims</h4>
-                {comparison.conflicts.length ? comparison.conflicts.map((conflict, index) => <div key={index}>
-                  <FormattedMarkdown>{conflict.point}</FormattedMarkdown>
-                  {conflict.positions.map((position, i) => <div key={i}>
-                    <FormattedMarkdown>{position.claim}</FormattedMarkdown>
-                    {position.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
-                  </div>)}
-                </div>) : <p>{comparison.issues?.length ? "The conflict check is incomplete. Do not interpret this as agreement." : "No explicit conflicts identified in the responding models’ answers."}</p>}
-              </div>
-            </div>
-            {comparison.reasoningDifferences.length > 0 && <div className={styles.metaCard}>
-              <h4>Different explanations, not disagreements</h4>
-              <ul>{comparison.reasoningDifferences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
-            </div>}
+            <ComparisonBreakdown comparison={comparison} defaultOpen={defaultOpen} />
             <p className={styles.settingsNote}>{result.confidenceNote}</p>
             </div>
           </details>}

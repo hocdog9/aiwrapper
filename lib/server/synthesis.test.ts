@@ -90,3 +90,21 @@ test("unverified votes are not counted when other sections are recovered", () =>
   assert.equal(result.comparison!.votes[0].choice, null);
   assert.ok(result.error);
 });
+
+test("batch recovery preserves other questions when one supporting quote fails", () => {
+  const comparison = () => ({
+    kind: "multiple_choice", votes: sources.map(s => ({ provider: s.provider, choice: "A", quote: s.content })),
+    sharedReasoning: [], conflicts: [], reasoningDifferences: [],
+  });
+  const questions = [
+    { question: "First", answer: "First answer", comparison: comparison() },
+    { question: "Second", answer: "Second answer", comparison: comparison() },
+  ];
+  questions[1].comparison.votes[0].quote = "fabricated";
+  const result = readSynthesis(JSON.stringify({ answer: "Fallback", comparison: { kind: "multi_question", questions } }), sources);
+  assert.equal(result.comparison?.questions?.[0].summary, "2 of 2 models chose A");
+  assert.equal(result.comparison?.questions?.[1].summary, "1 of 2 models chose A · 1 unclear");
+  assert.match(result.answer!, /1\. First answer/);
+  assert.match(result.answer!, /2\. Second answer/);
+  assert.ok(result.error);
+});
