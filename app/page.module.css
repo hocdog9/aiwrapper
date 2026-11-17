@@ -1070,6 +1070,8 @@
 }
 
 .textarea {
+  box-sizing: border-box;
+  overflow-y: hidden;
   flex: 1;
   border-radius: 18px;
   border: 1px solid #d1d5db;

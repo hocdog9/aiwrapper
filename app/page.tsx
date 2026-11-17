@@ -355,6 +355,23 @@ export default function Home() {
   const [profileSyncError, setProfileSyncError] = useState("");
   const [showSettings, setShowSettings] = useState(false);
   const viewportRef = useRef<HTMLDivElement | null>(null);
+  const composerRef = useRef<HTMLTextAreaElement | null>(null);
+
+  useEffect(() => {
+    const field = composerRef.current;
+    if (!field) return;
+    field.style.height = "auto";
+    field.style.overflowY = "hidden";
+    if (!input) {
+      field.scrollTop = 0;
+      return;
+    }
+    // scrollHeight includes padding, but not the border-box borders.
+    const borderHeight = field.offsetHeight - field.clientHeight;
+    const height = field.scrollHeight + borderHeight;
+    field.style.height = `${Math.min(height, 180)}px`;
+    field.style.overflowY = height > 180 ? "auto" : "hidden";
+  }, [input]);
   const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string; retryable?: boolean } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const chat = activeSession?.chat ?? EMPTY_CHAT;
@@ -1146,6 +1163,7 @@ export default function Home() {
 
         <form className={styles.composer} onSubmit={handleSubmit}>
           <textarea
+            ref={composerRef}
             value={input}
             onChange={(event) => setInput(event.target.value)}
             rows={1}
@@ -1166,11 +1184,6 @@ export default function Home() {
                 }
               };
               reader.readAsDataURL(file);
-            }}
-            onInput={(event) => {
-              const target = event.target as HTMLTextAreaElement;
-              target.style.height = "auto";
-              target.style.height = `${Math.min(target.scrollHeight, 180)}px`;
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
