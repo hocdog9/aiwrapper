@@ -907,18 +907,20 @@
 }
 
 .regenerateButton {
-  display: grid;
-  place-items: center;
-  width: 34px;
-  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: fit-content;
+  min-height: 34px;
   margin-top: 12px;
   border: 1px solid #d1d5db;
   border-radius: 999px;
   background: transparent;
   color: inherit;
-  padding: 0;
+  padding: 8px 12px;
   font: inherit;
-  font-size: 1.3rem;
+  font-size: 0.8rem;
   line-height: 1;
   font-weight: 600;
   cursor: pointer;
@@ -1269,4 +1271,58 @@
   margin: 0;
   font-size: 0.875rem;
   line-height: 1.5;
+}
+
+.composerActions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.modelPicker { position: relative; }
+
+.modelPickerButton {
+  cursor: pointer;
+  padding: 12px;
+  border: 1px solid #94a3b866;
+  border-radius: 12px;
+  font-size: 0.85rem;
+}
+
+.modelPickerButton:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}
+
+.modelPickerMenu {
+  position: absolute;
+  bottom: calc(100% + 12px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  gap: 14px;
+  width: min(300px, 85vw);
+  margin: 0;
+  padding: 18px;
+  border: 1px solid #94a3b866;
+  border-radius: 14px;
+  background: #fff;
+  box-shadow: 0 8px 24px #0003;
+}
+
+.modelPickerMenu legend {
+  padding: 4px 8px;
+  border-radius: 6px;
+  background: #fff;
+  font-size: 0.8rem;
+}
+
+.dark .modelPickerMenu,
+.dark .modelPickerMenu legend { background: #111827; }
+
+@media (max-width: 1050px) {
+  .composer { flex-wrap: wrap; }
+  .composer .textarea { flex-basis: 100%; min-width: 0; }
+  .composerActions { width: 100%; }
 }

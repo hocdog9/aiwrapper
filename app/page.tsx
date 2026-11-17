@@ -281,9 +281,6 @@ function ConsensusDetails({
   const comparison = result.comparison;
 
 
-  if (result.responses.length === 1) {
-    return <p className={styles.settingsNote}>{comparisonStatus(result)}</p>;
-  }
 
 
   return (
@@ -315,10 +312,10 @@ function ConsensusDetails({
         className={styles.regenerateButton}
         onClick={onRetry}
         disabled={disabled}
-        aria-label="Regenerate response"
-        title="Regenerate response"
+        aria-label={`Rerun with selected models — ${result.retryable ? "0 requests" : "1 request"}`}
+        title={`Rerun with selected models — ${result.retryable ? "0 requests" : "1 request"}`}
       >
-        <span aria-hidden="true">↻</span>
+        <span aria-hidden="true">↻</span> Rerun with selected models · {result.retryable ? "0 requests" : "1 request"}
       </button>
     </div>
   );
@@ -705,27 +702,23 @@ export default function Home() {
     await runRequest(lastRequest.messages, lastRequest.sessionId, requestId, settings, lastRequest.retryable ? lastRequest.requestId : undefined);
   }
 
-  async function changeModel(provider: ProviderName, model: string) {
-    if (isLoading || settings[provider].model === model) return;
-    const nextSettings = { ...settings, [provider]: { ...settings[provider], model } };
-    setSettings(nextSettings);
-    if (!settings[provider].enabled || !activeSession) return;
-    // Reconstruct the last question after a reload as well as during the current session.
-    let previous = lastRequest?.sessionId === activeSession.id ? lastRequest : null;
-    if (!previous) {
-      const userIndex = chat.findLastIndex((message) => message.role === "user");
-      if (userIndex < 0) return;
-      previous = { messages: chat.slice(0, userIndex + 1), userTurn: chat[userIndex], sessionId: activeSession.id,
-        requestId: result?.requestId ?? "", retryable: result?.retryable === true };
-    }
+  function changeModel(provider: ProviderName, model: string) {
+    setSettings(current => ({ ...current, [provider]: { ...current[provider], model } }));
+  }
+
+  async function rerunAnswer(answerIndex: number) {
+    if (isLoading || !activeSession) return;
+    const answer = chat[answerIndex];
+    const messages = chat.slice(0, answerIndex);
+    const userTurn = messages[messages.length - 1];
+    if (!answer?.result || userTurn?.role !== "user") return;
     const requestId = crypto.randomUUID();
-    setLastRequest({ ...previous, requestId, retryable: false });
+    setLastRequest({ messages, userTurn, sessionId: activeSession.id, requestId, retryable: false });
     setError(null);
-    setShowSettings(false);
     setIsLoading(true);
-    setStatusText(previous.retryable ? "Retrying with your new model — no request charged…" : "Asking your new model…");
-    await runRequest(previous.messages, previous.sessionId, requestId, nextSettings,
-      previous.retryable ? previous.requestId : undefined);
+    setStatusText("Rerunning with selected models…");
+    await runRequest(messages, activeSession.id, requestId, settings,
+      answer.result.retryable ? answer.result.requestId : undefined);
   }
 
   function startNewChat() {
@@ -993,7 +986,7 @@ export default function Home() {
           )}
           {userId && <section className={styles.settingsContent} aria-labelledby="model-choices-title">
             <h3 id="model-choices-title">Models</h3>
-          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. Changing an enabled model automatically retries your last question. Incomplete responses and their retries do not use your allowance; changing models after a successful answer uses one request.</p>
+          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. Changes apply to your next send and do not use a request. To repeat a question, choose “Rerun with selected models” below its answer. Incomplete-response retries are free; rerunning a successful answer uses one request.</p>
           {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
             const modelIds = modelCatalog[provider];
             return (
@@ -1112,8 +1105,8 @@ export default function Home() {
                 {message.role === "assistant" && message.result && (
                   <ConsensusDetails
                     result={message.result}
-                    onRetry={retryLastRequest}
-                    disabled={isLoading}
+                    onRetry={() => void rerunAnswer(index)}
+                    disabled={isLoading || index !== chat.length - 1}
                     defaultOpen={settings.consensusDropdownDefaultOpen}
                   />
                 )}
@@ -1195,9 +1188,37 @@ export default function Home() {
               ))}
             </div>
           )}
+          <div className={styles.composerActions}>
+          <details className={styles.modelPicker} onKeyDown={event => {
+            if (event.key === "Escape") {
+              event.currentTarget.open = false;
+              event.currentTarget.querySelector("summary")?.focus();
+            }
+          }}>
+            <summary className={styles.modelPickerButton}>Models · {getEnabledProviderLabel(settings)}</summary>
+            <fieldset className={styles.modelPickerMenu}>
+              <legend>Models for your next message</legend>
+              {(["GPT", "Gemini", "Claude"] as ProviderName[]).map(provider => (
+                <label key={provider} className={styles.providerCheck}>
+                  <input type="checkbox" checked={settings[provider].enabled}
+                    disabled={isLoading || (settings[provider].enabled &&
+                      (["GPT", "Gemini", "Claude"] as ProviderName[]).filter(p => settings[p].enabled).length === 1)}
+                    onChange={event => setSettings(current => ({
+                      ...current, [provider]: { ...current[provider], enabled: event.target.checked },
+                    }))} />
+                  {provider}
+                </label>
+              ))}
+              <button type="button" className={styles.profileButton} onClick={event => {
+                event.currentTarget.closest("details")?.removeAttribute("open");
+                setShowSettings(true);
+              }}>Model versions in Settings</button>
+            </fieldset>
+          </details>
           <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || (!input.trim() && !pastedImages.length)}>
             {!authChecked ? "Getting ready…" : isLoading ? "Thinking…" : "Send"}
           </button>
+          </div>
         </form>
       </section>
     </main>

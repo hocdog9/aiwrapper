@@ -72,15 +72,15 @@ This reduces casual cookie/storage resets, not determined abuse across networks 
 
 ### Choosing another model
 
-Open **Settings → Models**, select a model under an enabled provider. The last question is retried automatically with the new settings, replacing its previous answer. Provider failures include a **Change models** shortcut. Choices persist with the current profile, including guest profiles. Model selection is manual; retrying after selection is automatic. Model availability, quotas, and outages still depend on the provider account.
+Use **Models** beside Send to select providers for the next message. Specific model versions remain in **Settings → Models**. Changing providers, versions, or profiles does not send a request or modify an existing answer. Choices persist with the current profile, including guest profiles. To intentionally repeat the latest question, use **Rerun with selected models** below its answer; the button shows the request cost before clicking. Model availability, quotas, and outages still depend on the provider account.
 
 Built-in alternatives include GPT-4.1 Mini, Gemini 3.7 Flash and 3.5 Flash-Lite, and Claude Haiku 4.5 alongside the configured defaults. Review provider support when changing the catalog: [OpenAI](https://developers.openai.com/api/docs/models/gpt-4.1-mini), [Google](https://firebase.google.com/docs/ai-logic/models), [Anthropic](https://platform.claude.com/docs/en/models/haiku-4-5/overview). Configure explicit per-plan lists or server model-list variables to control which models your app funds. No SQL migration is needed for plans with empty model lists.
 
 ### Automatic model retries and credits
 
-Run `supabase/model_retry_migration.sql` before deploying the automatic-retry version. It adds server-only reservation/finalization functions and disables the older client-callable credit functions. All deployments using this database must use the updated app after applying it.
+Run `supabase/model_retry_migration.sql` before deploying retry support. It adds server-only reservation/finalization functions and disables the older client-callable credit functions. All deployments using this database must use the updated app after applying it.
 
-An incomplete response (including a partial provider or synthesis failure) is refunded. Changing an enabled model automatically resends the same conversation input; the server verifies its fingerprint, owner, and incomplete parent before allowing a zero-credit retry. A parent attempt can only be retried once, atomically; if that retry also fails, its new attempt can be retried. Successful answers retried by changing models use the normal allowance. New questions always use the normal allowance. Guest attempt, rate, and concurrency limits still apply.
+An incomplete response (including a partial provider or synthesis failure) is refunded. Explicitly choosing **Rerun with selected models** resends the same conversation input; the server verifies its fingerprint, owner, and incomplete parent before allowing a zero-credit retry. A parent attempt can only be retried once, atomically; if that retry also fails, its new attempt can be retried. Explicit reruns of successful answers use the normal allowance. Changing a model selection alone uses no allowance. New questions always use the normal allowance. Guest attempt, rate, and concurrency limits still apply.
 
 The response is replaced in place and the allowance shown comes from the finalized server ledger. Old responses from before this migration lack retry fingerprints and are not retroactively eligible for free retries. Apply and exercise the migration in Supabase to verify database behavior; local unit tests do not run the hosted database.
 
