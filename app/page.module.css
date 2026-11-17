@@ -1350,3 +1350,49 @@
     padding: 18px 20px;
   }
 }
+
+.composer { flex-wrap: wrap; }
+
+.composerDropActive {
+  outline: 2px dashed #38bdf8;
+  outline-offset: -6px;
+}
+
+.attachmentNotice,
+.documentAttachments,
+.composer > .imagePreviewList {
+  flex-basis: 100%;
+}
+
+.attachmentNotice {
+  margin: 0;
+  font-size: 0.85rem;
+}
+
+.documentAttachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.documentChip {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+  border: 1px solid #94a3b866;
+  border-radius: 10px;
+  padding: 6px 10px;
+  font-size: 0.85rem;
+}
+
+.documentChip button {
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  font-size: 1.2rem;
+}
+
+.composerActions { flex-wrap: wrap; }

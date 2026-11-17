@@ -4,6 +4,7 @@ import { FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
+import { FILE_ACCEPT, classifyFile, attachmentPrompt, validateAttachments, type AttachedDocument } from "@/lib/file-attachments";
 import { comparisonStatus } from "@/lib/comparison-status";
 import type { AnswerComparison } from "@/lib/answer-comparison";
 import { recentChatContext } from "@/lib/chat-context";
@@ -32,7 +33,7 @@ type ChatTurn = {
     dataUrl: string;
     mimeType: string;
   };
-  images?: Array<{ dataUrl: string; mimeType: string }>;
+  images?: Array<{ dataUrl: string; mimeType: string; name?: string }>;
   result?: ResponsePayload;
 };
 
@@ -324,11 +325,19 @@ function ConsensusDetails({
 export default function Home() {
   const [input, setInput] = useState("");
   const [sessions, setSessions] = useState<ChatSession[]>([]);
-  const [activeChatId, setActiveChatId] = useState("");
+  const [activeChatId, setActiveChatIdState] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const [statusText, setStatusText] = useState("Ready to compare model responses.");
   const [error, setError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
+  const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([]);
+  const [attachmentError, setAttachmentError] = useState<string | null>(null);
+  const [isReadingFiles, setIsReadingFiles] = useState(false);
+  const [isDraggingFiles, setIsDraggingFiles] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const readingFilesRef = useRef(false);
+  const draftGeneration = useRef(0);
+  const dragDepth = useRef(0);
   const [pastedImages, setPastedImages] = useState<NonNullable<ChatTurn["images"]>>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [usageSummary, setUsageSummary] = useState<UsageSummary | null>(null);
@@ -372,6 +381,17 @@ export default function Home() {
     field.style.height = `${Math.min(height, 180)}px`;
     field.style.overflowY = height > 180 ? "auto" : "hidden";
   }, [input]);
+  function setActiveChatId(id: string) {
+    // Discard a pending read when switching chats; attachments belong to a draft.
+    setActiveChatIdState(id);
+    draftGeneration.current += 1;
+    setPastedImages([]);
+    setAttachedDocuments([]);
+    setAttachmentError(null);
+    setIsDraggingFiles(false);
+    dragDepth.current = 0;
+  }
+
   const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string; retryable?: boolean } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const chat = activeSession?.chat ?? EMPTY_CHAT;
@@ -682,13 +702,53 @@ export default function Home() {
     }
   }
 
+  async function attachFiles(files: File[]) {
+    if (!files.length || isLoading || readingFilesRef.current) return;
+    readingFilesRef.current = true;
+    setIsReadingFiles(true);
+    setAttachmentError(null);
+    const generation = draftGeneration.current;
+    try {
+      const images = [...pastedImages];
+      const documents = [...attachedDocuments];
+      if (files.length + images.length + documents.length > 8) throw new Error("Attach up to 4 images and 4 text files.");
+      for (const file of files) {
+        const type = classifyFile(file);
+        if (type.kind === "image") {
+          const dataUrl = await new Promise<string>((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result));
+            reader.onerror = () => reject(new Error(`Could not read ${file.name}.`));
+            reader.readAsDataURL(new Blob([file], { type: type.mimeType }));
+          });
+          images.push({ dataUrl, mimeType: type.mimeType, name: file.name });
+        } else {
+          const text = await file.text();
+          if (!text.trim() || text.includes("\0")) throw new Error(`${file.name} does not contain readable text.`);
+          documents.push({ name: file.name, text });
+        }
+      }
+      validateAttachments(input, images, documents);
+      if (generation !== draftGeneration.current) return;
+      setPastedImages(images);
+      setAttachedDocuments(documents);
+    } catch (error) {
+      if (generation === draftGeneration.current) setAttachmentError(error instanceof Error ? error.message : "Unable to read files.");
+    } finally {
+      readingFilesRef.current = false;
+      setIsReadingFiles(false);
+    }
+  }
+
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (!userId) { setError(guestError || "Preparing your free session. Please try again in a moment."); return; }
     const trimmed = input.trim();
-    if ((!trimmed && !pastedImages.length) || isLoading || !activeSession) return;
+    if ((!trimmed && !pastedImages.length && !attachedDocuments.length) || isLoading || readingFilesRef.current || !activeSession) return;
+    try { validateAttachments(trimmed, pastedImages, attachedDocuments); }
+    catch (error) { setAttachmentError(error instanceof Error ? error.message : "Invalid attachments."); return; }
 
-    const userTurn: ChatTurn = { role: "user", content: trimmed, images: pastedImages };
+    const userTurn: ChatTurn = { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), images: pastedImages };
     const requestMessages = [...chat, userTurn];
     const requestId = crypto.randomUUID();
     setLastRequest({ messages: requestMessages, userTurn, sessionId: activeSession.id, requestId });
@@ -698,11 +758,14 @@ export default function Home() {
           ...session,
           chat: [...session.chat, userTurn],
           result: null,
-          title: session.title === "New chat" ? trimmed.slice(0, 42) : session.title,
+          title: session.title === "New chat" ? (trimmed || attachedDocuments[0]?.name || pastedImages[0]?.name || "Image question").slice(0, 42) : session.title,
         }
       : session));
     setInput("");
     setPastedImages([]);
+    setAttachedDocuments([]);
+    setAttachmentError(null);
+    draftGeneration.current += 1;
     setError(null);
     setIsLoading(true);
     setStatusText(`Asking ${getEnabledProviderLabel(settings)}…`);
@@ -894,6 +957,9 @@ export default function Home() {
     }
     setInput("");
                   setPastedImages([]);
+                  setAttachedDocuments([]);
+                  setAttachmentError(null);
+                  draftGeneration.current += 1;
     setError(null);
     setStatusText("Ready to compare model responses.");
   }
@@ -1161,7 +1227,46 @@ export default function Home() {
 
         </div>
 
-        <form className={styles.composer} onSubmit={handleSubmit}>
+        <form className={`${styles.composer} ${isDraggingFiles ? styles.composerDropActive : ""}`} onSubmit={handleSubmit}
+          onDragEnter={event => {
+            if (!event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault();
+            dragDepth.current += 1;
+            setIsDraggingFiles(true);
+          }}
+          onDragOver={event => {
+            if (!event.dataTransfer.types.includes("Files")) return;
+            event.preventDefault();
+            event.dataTransfer.dropEffect = isLoading || isReadingFiles ? "none" : "copy";
+          }}
+          onDragLeave={event => {
+            event.preventDefault();
+            dragDepth.current = Math.max(0, dragDepth.current - 1);
+            if (!dragDepth.current) setIsDraggingFiles(false);
+          }}
+          onDrop={event => {
+            event.preventDefault();
+            dragDepth.current = 0;
+            setIsDraggingFiles(false);
+            void attachFiles(Array.from(event.dataTransfer.files));
+          }}>
+          <input ref={fileInputRef} type="file" accept={FILE_ACCEPT} multiple hidden
+            onChange={event => {
+              void attachFiles(Array.from(event.target.files ?? []));
+              event.target.value = "";
+            }} />
+          {isDraggingFiles && <p className={styles.attachmentNotice}>Drop images or text files here</p>}
+          {isReadingFiles && <p className={styles.attachmentNotice} role="status">Reading files…</p>}
+          {attachmentError && <p className={styles.attachmentNotice} role="alert">{attachmentError}</p>}
+          {attachedDocuments.length > 0 && <div className={styles.documentAttachments}>
+            {attachedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className={styles.documentChip}>
+              {file.name}
+              <button type="button" disabled={isReadingFiles} aria-label={`Remove ${file.name}`} onClick={() => {
+                setAttachedDocuments(current => current.filter((_, i) => i !== index));
+                setAttachmentError(null);
+              }}>×</button>
+            </span>)}
+          </div>}
           <textarea
             ref={composerRef}
             value={input}
@@ -1170,20 +1275,10 @@ export default function Home() {
             className={styles.textarea}
             placeholder="Ask a question or paste a multiple-choice question…"
             onPaste={(event) => {
-              const imageItem = Array.from(event.clipboardData.items).find((item) => item.type.startsWith("image/"));
-              if (!imageItem) return;
-
-              const file = imageItem.getAsFile();
-              if (!file) return;
-
+              const files = Array.from(event.clipboardData.files);
+              if (!files.length) return;
               event.preventDefault();
-              const reader = new FileReader();
-              reader.onload = () => {
-                if (typeof reader.result === "string") {
-                  setPastedImages((current) => [...current, { dataUrl: reader.result as string, mimeType: file.type }]);
-                }
-              };
-              reader.readAsDataURL(file);
+              void attachFiles(files);
             }}
             onKeyDown={(event) => {
               if (event.key === "Enter" && !event.shiftKey) {
@@ -1197,7 +1292,7 @@ export default function Home() {
               {pastedImages.map((image, imageIndex) => (
                 <div key={`${image.dataUrl}-${imageIndex}`} className={styles.imagePreviewWrap}>
                   <img className={styles.imagePreview} src={image.dataUrl} alt={`Pasted prompt preview ${imageIndex + 1}`} />
-                  <button type="button" className={styles.removeImageButton} onClick={() => setPastedImages((current) => current.filter((_, index) => index !== imageIndex))} aria-label={`Remove pasted image ${imageIndex + 1}`}>
+                  <button type="button" className={styles.removeImageButton} disabled={isReadingFiles} onClick={() => setPastedImages((current) => current.filter((_, index) => index !== imageIndex))} aria-label={`Remove pasted image ${imageIndex + 1}`}>
                     ×
                   </button>
                 </div>
@@ -1205,6 +1300,8 @@ export default function Home() {
             </div>
           )}
           <div className={styles.composerActions}>
+          <button type="button" className={styles.profileButton} disabled={isLoading || isReadingFiles}
+            onClick={() => fileInputRef.current?.click()} title="Attach images or text files">Attach files</button>
           <details className={styles.modelPicker} onKeyDown={event => {
             if (event.key === "Escape") {
               event.currentTarget.open = false;
@@ -1231,7 +1328,7 @@ export default function Home() {
               }}>Model versions in Settings</button>
             </fieldset>
           </details>
-          <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || (!input.trim() && !pastedImages.length)}>
+          <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || isReadingFiles || (!input.trim() && !pastedImages.length && !attachedDocuments.length)}>
             {!authChecked ? "Getting ready…" : isLoading ? "Thinking…" : "Send"}
           </button>
           </div>
