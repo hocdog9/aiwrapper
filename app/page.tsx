@@ -1119,7 +1119,12 @@ export default function Home() {
               <div className={styles.loadingBubble} role="status" aria-live="polite" aria-atomic="true">
                 <div className={styles.loader}>
                   <span className={styles.loadingGraphic} aria-hidden="true">
-                    <span /><span /><span />
+                    <span className={styles.orbitScene}>
+                      <span className={styles.orbitRing} />
+                      <span className={styles.orbitRing} />
+                      <span className={styles.orbitRing} />
+                      <span className={styles.orbitCore} />
+                    </span>
                   </span>
                   <span>Asking {getEnabledProviderLabel(settings)}…</span>
                 </div>

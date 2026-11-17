@@ -1225,41 +1225,91 @@
 }
 
 .loadingGraphic {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  width: 42px;
-  height: 28px;
+  --orbit-color: #0284c7;
+  --orbit-glow: #38bdf855;
+  position: relative;
+  display: block;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
+  perspective: 180px;
 }
 
-.loadingGraphic > span {
-  width: 8px;
-  height: 8px;
+.dark .loadingGraphic {
+  --orbit-color: #67e8f9;
+  --orbit-glow: #22d3ee66;
+}
+
+.orbitScene {
+  position: absolute;
+  inset: 8px;
+  transform-style: preserve-3d;
+  transform: rotateX(-18deg) rotateY(20deg);
+  animation: orbitPrecession 12s linear infinite;
+}
+
+.orbitRing {
+  --tilt-x: 65deg;
+  --tilt-y: 0deg;
+  position: absolute;
+  inset: 0;
+  border: 1px solid var(--orbit-color);
+  border-top: 2px solid var(--orbit-color);
+  border-right-color: transparent;
   border-radius: 50%;
-  background: currentColor;
-  animation: loadingPulse 1.4s ease-in-out infinite;
+  box-shadow: 0 0 7px var(--orbit-glow), inset 0 0 5px var(--orbit-glow);
+  transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y));
+  animation: orbitRotation 3.6s linear infinite;
 }
 
-.loadingGraphic > span:nth-child(2) {
-  animation-delay: 0.16s;
+.orbitRing:nth-child(2) {
+  --tilt-x: -55deg;
+  --tilt-y: 60deg;
+  inset: 3px;
+  animation-duration: 4.8s;
+  animation-direction: reverse;
 }
 
-.loadingGraphic > span:nth-child(3) {
-  animation-delay: 0.32s;
+.orbitRing:nth-child(3) {
+  --tilt-x: 20deg;
+  --tilt-y: -65deg;
+  inset: -3px;
+  animation-duration: 6s;
 }
 
-@keyframes loadingPulse {
-  0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-  30% { transform: translateY(-6px); opacity: 1; }
+.orbitRing::after {
+  content: "";
+  position: absolute;
+  top: 5px;
+  left: 5px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--orbit-color);
+  box-shadow: 0 0 6px var(--orbit-color);
+}
+
+.orbitCore {
+  position: absolute;
+  inset: 20px;
+  border-radius: 50%;
+  background: var(--orbit-color);
+  box-shadow: 0 0 8px var(--orbit-color), 0 0 18px var(--orbit-glow);
+}
+
+@keyframes orbitRotation {
+  from { transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) rotateZ(0deg); }
+  to { transform: rotateX(var(--tilt-x)) rotateY(var(--tilt-y)) rotateZ(360deg); }
+}
+
+@keyframes orbitPrecession {
+  from { transform: rotateX(-18deg) rotateY(20deg) rotateZ(0deg); }
+  to { transform: rotateX(-18deg) rotateY(380deg) rotateZ(360deg); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loadingGraphic > span {
-    animation: none;
-    opacity: 0.7;
-  }
+  .orbitScene,
+  .orbitRing { animation: none; }
 }
 
 .questionBreakdowns {
