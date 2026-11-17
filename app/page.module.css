@@ -1240,23 +1240,27 @@
 }
 
 .orbitRing {
-  --tilt: 55deg;
+  --tilt: 45deg;
+  --angle: 0deg;
   position: absolute;
   inset: 0;
   border: 1px solid white;
   border-radius: 50%;
-  transform: rotateX(var(--tilt)) rotateY(0deg);
-  animation: orbitRotation 6s linear infinite;
+  transform: rotateZ(var(--angle)) rotateX(var(--tilt));
+  animation: orbitRotation 7s linear infinite;
 }
 
 .orbitRing:nth-child(2) {
-  --tilt: -55deg;
+  --tilt: 55deg;
+  --angle: 90deg;
+  inset: 4px;
+  animation-duration: 9s;
   animation-direction: reverse;
 }
 
 @keyframes orbitRotation {
-  from { transform: rotateX(var(--tilt)) rotateY(0deg); }
-  to { transform: rotateX(var(--tilt)) rotateY(360deg); }
+  from { transform: rotateZ(var(--angle)) rotateX(var(--tilt)); }
+  to { transform: rotateZ(calc(var(--angle) + 360deg)) rotateX(var(--tilt)); }
 }
 
 @media (prefers-reduced-motion: reduce) {
