@@ -1333,3 +1333,20 @@
   .composer .textarea { flex-basis: 100%; min-width: 0; }
   .composerActions { width: 100%; }
 }
+
+.assistantRow .messageBubble {
+  padding: 20px 24px;
+}
+
+.messageContent ol,
+.providerContent ol,
+.resultBody ol,
+.metaCard ol {
+  padding-inline-start: 1.75rem;
+}
+
+@media (max-width: 600px) {
+  .assistantRow .messageBubble {
+    padding: 18px 20px;
+  }
+}
