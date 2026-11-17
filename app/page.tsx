@@ -1122,8 +1122,7 @@ export default function Home() {
                     <span className={styles.orbitScene}>
                       <span className={styles.orbitRing} />
                       <span className={styles.orbitRing} />
-                      <span className={styles.orbitRing} />
-                      <span className={styles.orbitCore} />
+
                     </span>
                   </span>
                   <span>Asking {getEnabledProviderLabel(settings)}…</span>
