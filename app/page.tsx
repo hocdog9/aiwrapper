@@ -714,7 +714,10 @@ export default function Home() {
       if (files.length + images.length + documents.length > 8) throw new Error("Attach up to 4 images and 4 text files.");
       for (const file of files) {
         const type = classifyFile(file);
-        if (type.kind === "image") {
+        if (type.kind === "pdf") {
+          const { renderPdf } = await import("@/lib/pdf-attachments");
+          images.push(...await renderPdf(file, 4 - images.length, () => generation !== draftGeneration.current));
+        } else if (type.kind === "image") {
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
             reader.onload = () => resolve(String(reader.result));
@@ -1255,7 +1258,7 @@ export default function Home() {
               void attachFiles(Array.from(event.target.files ?? []));
               event.target.value = "";
             }} />
-          {isDraggingFiles && <p className={styles.attachmentNotice}>Drop images or text files here</p>}
+          {isDraggingFiles && <p className={styles.attachmentNotice}>Drop PDFs, images or text files here</p>}
           {isReadingFiles && <p className={styles.attachmentNotice} role="status">Reading files…</p>}
           {attachmentError && <p className={styles.attachmentNotice} role="alert">{attachmentError}</p>}
           {attachedDocuments.length > 0 && <div className={styles.documentAttachments}>
@@ -1291,8 +1294,9 @@ export default function Home() {
             <div className={styles.imagePreviewList}>
               {pastedImages.map((image, imageIndex) => (
                 <div key={`${image.dataUrl}-${imageIndex}`} className={styles.imagePreviewWrap}>
-                  <img className={styles.imagePreview} src={image.dataUrl} alt={`Pasted prompt preview ${imageIndex + 1}`} />
-                  <button type="button" className={styles.removeImageButton} disabled={isReadingFiles} onClick={() => setPastedImages((current) => current.filter((_, index) => index !== imageIndex))} aria-label={`Remove pasted image ${imageIndex + 1}`}>
+                  <img className={styles.imagePreview} src={image.dataUrl} alt={image.name ?? `Attached image ${imageIndex + 1}`} />
+                  {image.name && <span className={styles.attachmentCaption}>{image.name}</span>}
+                  <button type="button" className={styles.removeImageButton} disabled={isReadingFiles} onClick={() => setPastedImages((current) => current.filter((_, index) => index !== imageIndex))} aria-label={`Remove ${image.name ?? `attached image ${imageIndex + 1}`}`}>
                     ×
                   </button>
                 </div>
@@ -1301,7 +1305,7 @@ export default function Home() {
           )}
           <div className={styles.composerActions}>
           <button type="button" className={styles.profileButton} disabled={isLoading || isReadingFiles}
-            onClick={() => fileInputRef.current?.click()} title="Attach images or text files">Attach files</button>
+            onClick={() => fileInputRef.current?.click()} title="Attach PDFs (up to 4 pages), images or text files">Attach files</button>
           <details className={styles.modelPicker} onKeyDown={event => {
             if (event.key === "Escape") {
               event.currentTarget.open = false;

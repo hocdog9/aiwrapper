@@ -1,4 +1,4 @@
-export const FILE_ACCEPT = ".png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.html,.css";
+export const FILE_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.html,.css";
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_PROMPT_CHARACTERS = 4000;
 export type AttachedDocument = { name: string; text: string };
@@ -8,9 +8,13 @@ const imageTypes: Record<string, string> = {
 };
 const textExtensions = new Set(["txt", "md", "csv", "json", "log", "xml", "yaml", "yml", "js", "ts", "py", "html", "css"]);
 
-export function classifyFile(file: { name: string; type: string; size: number }): { kind: "image" | "text"; mimeType: string } {
+export function classifyFile(file: { name: string; type: string; size: number }): { kind: "image" | "text" | "pdf"; mimeType: string } {
   if (!file.size) throw new Error(`${file.name} is empty.`);
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (extension === "pdf" || file.type === "application/pdf") {
+    if (file.size > 10 * 1024 * 1024) throw new Error("PDFs must be no larger than 10 MB.");
+    return { kind: "pdf", mimeType: "application/pdf" };
+  }
   const mimeType = imageTypes[extension] ?? (Object.values(imageTypes).includes(file.type) ? file.type : undefined);
   if (mimeType) {
     if (file.size > MAX_IMAGE_BYTES) throw new Error("Images must total no more than 3 MB.");
@@ -20,7 +24,7 @@ export function classifyFile(file: { name: string; type: string; size: number })
     if (file.size > 64 * 1024) throw new Error(`${file.name} is too large. Use a short text excerpt.`);
     return { kind: "text", mimeType: "text/plain" };
   }
-  throw new Error(`${file.name} is not supported. Use an image or a text file (TXT, Markdown, CSV, JSON or source code). PDF and Word files are not supported yet.`);
+  throw new Error(`${file.name} is not supported. Use a PDF, image or a text file (TXT, Markdown, CSV, JSON or source code). Word files are not supported yet.`);
 }
 
 export function attachmentPrompt(input: string, documents: AttachedDocument[]): string {
@@ -28,7 +32,7 @@ export function attachmentPrompt(input: string, documents: AttachedDocument[]): 
 }
 
 export function validateAttachments(input: string, images: AttachedImage[], documents: AttachedDocument[]) {
-  if (images.length > 4) throw new Error("Attach no more than 4 images per message.");
+  if (images.length > 4) throw new Error("Attach no more than 4 images or PDF pages per message.");
   const bytes = images.reduce((sum, image) => {
     const data = image.dataUrl.split(",", 2)[1] ?? "";
     return sum + Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);

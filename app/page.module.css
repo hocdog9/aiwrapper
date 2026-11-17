@@ -1396,3 +1396,11 @@
 }
 
 .composerActions { flex-wrap: wrap; }
+
+.attachmentCaption {
+  display: block;
+  max-width: 180px;
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+  padding: 4px 6px;
+}

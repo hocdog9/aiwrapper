@@ -5,7 +5,10 @@ import { attachmentPrompt, classifyFile, validateAttachments } from "../file-att
 test("supported images and text files are classified even without browser MIME types", () => {
   assert.equal(classifyFile({ name: "photo.JPG", type: "", size: 100 }).mimeType, "image/jpeg");
   assert.equal(classifyFile({ name: "questions.csv", type: "", size: 100 }).kind, "text");
-  assert.throws(() => classifyFile({ name: "paper.pdf", type: "application/pdf", size: 100 }), /not supported/);
+  assert.equal(classifyFile({ name: "paper.pdf", type: "application/pdf", size: 100 }).kind, "pdf");
+  assert.equal(classifyFile({ name: "SCAN.PDF", type: "", size: 100 }).kind, "pdf");
+  assert.throws(() => classifyFile({ name: "large.pdf", type: "application/pdf", size: 11 * 1024 * 1024 }), /10 MB/);
+  assert.throws(() => classifyFile({ name: "paper.docx", type: "", size: 100 }), /not supported/);
   assert.throws(() => classifyFile({ name: "empty.txt", type: "text/plain", size: 0 }), /empty/);
 });
 test("text attachment contents become part of the model prompt", () => {
