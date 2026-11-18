@@ -1264,7 +1264,6 @@ export default function Home() {
           {isDraggingFiles && <p className={styles.attachmentNotice}>Drop documents, spreadsheets, presentations or images here</p>}
           {isReadingFiles && <p className={styles.attachmentNotice} role="status">Reading files…</p>}
           {attachmentError && <p className={styles.attachmentNotice} role="alert">{attachmentError}</p>}
-          {attachedDocuments.some(file => /\.(xlsx?|docx|pptx)$/i.test(file.name)) && <p className={styles.attachmentNotice}>Office uploads include text and cells, not embedded visuals. Use PDF for diagrams and images.</p>}
           {attachedDocuments.length > 0 && <div className={styles.documentAttachments}>
             {attachedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className={styles.documentChip}>
               {file.name}
