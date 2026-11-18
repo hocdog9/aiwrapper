@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { FILE_ACCEPT, classifyFile, attachmentPrompt, validateAttachments, type AttachedDocument } from "@/lib/file-attachments";
+import { messageDisplay } from "@/lib/message-display";
 import { comparisonStatus } from "@/lib/comparison-status";
 import type { AnswerComparison } from "@/lib/answer-comparison";
 import { recentChatContext } from "@/lib/chat-context";
@@ -27,6 +28,8 @@ type ConsensusClaim = {
 };
 
 type ChatTurn = {
+  displayContent?: string;
+  attachedFileNames?: string[];
   role: "user" | "assistant";
   content: string;
   image?: {
@@ -754,7 +757,7 @@ export default function Home() {
     try { validateAttachments(trimmed, pastedImages, attachedDocuments); }
     catch (error) { setAttachmentError(error instanceof Error ? error.message : "Invalid attachments."); return; }
 
-    const userTurn: ChatTurn = { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), images: pastedImages };
+    const userTurn: ChatTurn = { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), displayContent: trimmed, attachedFileNames: attachedDocuments.map(file => file.name), images: pastedImages };
     const requestMessages = [...chat, userTurn];
     const requestId = crypto.randomUUID();
     setLastRequest({ messages: requestMessages, userTurn, sessionId: activeSession.id, requestId });
@@ -1184,7 +1187,15 @@ export default function Home() {
                 {(message.images ?? (message.image ? [message.image] : [])).map((image, imageIndex) => (
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}
-                <div className={styles.messageContent}><FormattedMarkdown>{message.content}</FormattedMarkdown></div>
+                {messageDisplay(message).files.length > 0 && <div className={styles.documentAttachments}>
+                  {messageDisplay(message).files.map((name, fileIndex) => <span className={styles.documentChip} key={`${name}-${fileIndex}`}>
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" aria-hidden="true">
+                      <path d="M14 2H5v20h14V7l-5-5Zm0 0v5h5M8 12h8M8 16h8" />
+                    </svg>
+                    {name}
+                  </span>)}
+                </div>}
+                {messageDisplay(message).text && <div className={styles.messageContent}><FormattedMarkdown>{messageDisplay(message).text}</FormattedMarkdown></div>}
                 {message.role === "assistant" && message.result?.errors.some(item => item.provider !== "Comparison") ? (
                   <div className={styles.partialProviderWarning} role="status">
                     {message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.filter(item => item.provider !== "Comparison").map((item) => `${item.provider}: ${item.message}`).join(" ")}
