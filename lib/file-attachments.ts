@@ -1,4 +1,4 @@
-export const FILE_ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.html,.css";
+export const FILE_ACCEPT = ".xlsx,.xls,.docx,.pptx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.html,.css";
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_PROMPT_CHARACTERS = 4000;
 export type AttachedDocument = { name: string; text: string };
@@ -8,9 +8,13 @@ const imageTypes: Record<string, string> = {
 };
 const textExtensions = new Set(["txt", "md", "csv", "json", "log", "xml", "yaml", "yml", "js", "ts", "py", "html", "css"]);
 
-export function classifyFile(file: { name: string; type: string; size: number }): { kind: "image" | "text" | "pdf"; mimeType: string } {
+export function classifyFile(file: { name: string; type: string; size: number }): { kind: "image" | "text" | "pdf" | "office"; mimeType: string } {
   if (!file.size) throw new Error(`${file.name} is empty.`);
   const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+  if (["xlsx", "xls", "docx", "pptx"].includes(extension)) {
+    if (file.size > 10 * 1024 * 1024) throw new Error("Office files must be no larger than 10 MB.");
+    return { kind: "office", mimeType: file.type };
+  }
   if (extension === "pdf" || file.type === "application/pdf") {
     if (file.size > 10 * 1024 * 1024) throw new Error("PDFs must be no larger than 10 MB.");
     return { kind: "pdf", mimeType: "application/pdf" };
@@ -24,7 +28,7 @@ export function classifyFile(file: { name: string; type: string; size: number })
     if (file.size > 64 * 1024) throw new Error(`${file.name} is too large. Use a short text excerpt.`);
     return { kind: "text", mimeType: "text/plain" };
   }
-  throw new Error(`${file.name} is not supported. Use a PDF, image or a text file (TXT, Markdown, CSV, JSON or source code). Word files are not supported yet.`);
+  throw new Error(`${file.name} is not supported. Use XLSX, XLS, DOCX, PPTX, PDF, images or text files. Save older DOC/PPT files as DOCX/PPTX first.`);
 }
 
 export function attachmentPrompt(input: string, documents: AttachedDocument[]): string {
@@ -38,8 +42,8 @@ export function validateAttachments(input: string, images: AttachedImage[], docu
     return sum + Math.floor(data.length * 3 / 4) - (data.endsWith("==") ? 2 : data.endsWith("=") ? 1 : 0);
   }, 0);
   if (bytes > MAX_IMAGE_BYTES) throw new Error("Images must total no more than 3 MB.");
-  if (documents.length > 4) throw new Error("Attach no more than 4 text files per message.");
+  if (documents.length > 4) throw new Error("Attach no more than 4 documents per message.");
   if (documents.length && attachmentPrompt(input, documents).length > MAX_PROMPT_CHARACTERS) {
-    throw new Error("The message and text files exceed 4,000 characters. Shorten the message or attach a smaller excerpt; files will not be truncated.");
+    throw new Error("The message and document text exceed 4,000 characters. Shorten the message or attach a smaller excerpt; files will not be truncated.");
   }
 }

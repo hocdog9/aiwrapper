@@ -711,10 +711,13 @@ export default function Home() {
     try {
       const images = [...pastedImages];
       const documents = [...attachedDocuments];
-      if (files.length + images.length + documents.length > 8) throw new Error("Attach up to 4 images and 4 text files.");
+      if (files.length + images.length + documents.length > 8) throw new Error("Attach up to 4 images and 4 documents.");
       for (const file of files) {
         const type = classifyFile(file);
-        if (type.kind === "pdf") {
+        if (type.kind === "office") {
+          const { readOfficeFile } = await import("@/lib/office-attachments");
+          documents.push({ name: file.name, text: await readOfficeFile(file) });
+        } else if (type.kind === "pdf") {
           const { renderPdf } = await import("@/lib/pdf-attachments");
           images.push(...await renderPdf(file, 4 - images.length, () => generation !== draftGeneration.current));
         } else if (type.kind === "image") {
@@ -1258,9 +1261,10 @@ export default function Home() {
               void attachFiles(Array.from(event.target.files ?? []));
               event.target.value = "";
             }} />
-          {isDraggingFiles && <p className={styles.attachmentNotice}>Drop PDFs, images or text files here</p>}
+          {isDraggingFiles && <p className={styles.attachmentNotice}>Drop documents, spreadsheets, presentations or images here</p>}
           {isReadingFiles && <p className={styles.attachmentNotice} role="status">Reading files…</p>}
           {attachmentError && <p className={styles.attachmentNotice} role="alert">{attachmentError}</p>}
+          {attachedDocuments.some(file => /\.(xlsx?|docx|pptx)$/i.test(file.name)) && <p className={styles.attachmentNotice}>Office uploads include text and cells, not embedded visuals. Use PDF for diagrams and images.</p>}
           {attachedDocuments.length > 0 && <div className={styles.documentAttachments}>
             {attachedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className={styles.documentChip}>
               {file.name}
@@ -1305,7 +1309,7 @@ export default function Home() {
           )}
           <div className={styles.composerActions}>
           <button type="button" className={styles.profileButton} disabled={isLoading || isReadingFiles}
-            onClick={() => fileInputRef.current?.click()} title="Attach PDFs (up to 4 pages), images or text files">Attach files</button>
+            onClick={() => fileInputRef.current?.click()} title="Attach Excel, Word, PowerPoint, PDF, images or text files">Attach files</button>
           <details className={styles.modelPicker} onKeyDown={event => {
             if (event.key === "Escape") {
               event.currentTarget.open = false;
