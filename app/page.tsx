@@ -1309,7 +1309,11 @@ export default function Home() {
           )}
           <div className={styles.composerActions}>
           <button type="button" className={styles.profileButton} disabled={isLoading || isReadingFiles}
-            onClick={() => fileInputRef.current?.click()} title="Attach Excel, Word, PowerPoint, PDF, images or text files">Attach files</button>
+            onClick={() => fileInputRef.current?.click()} aria-label="Upload files" title="Upload files">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+            </svg>
+          </button>
           <details className={styles.modelPicker} onKeyDown={event => {
             if (event.key === "Escape") {
               event.currentTarget.open = false;
