@@ -5,7 +5,7 @@ import { requestFingerprint } from "./request-fingerprint";
 import { logProviderError } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
-import { recentChatContext, MAX_CONTEXT_MESSAGES } from "@/lib/chat-context";
+import { recentChatContext, MAX_CONTEXT_MESSAGES, MAX_MESSAGE_CHARACTERS } from "@/lib/chat-context";
 import { comparisonPrompt, type AnswerComparison } from "@/lib/answer-comparison";
 import { enforceGuestLimits } from "./guest-limits";
 import { authenticateRequest } from "./auth";
@@ -69,7 +69,8 @@ export function cleanMessages(value: unknown): { messages: ChatMessage[]; error?
     if (!item || typeof item !== "object") return { messages: [], error: "Invalid message payload." };
     const role = item.role === "assistant" ? "assistant" : item.role === "user" ? "user" : "";
     if (!role || typeof item.content !== "string") return { messages: [], error: "Invalid message payload." };
-    const content = item.content.trim().slice(0, 4_000);
+    const content = item.content.trim();
+    if (content.length > MAX_MESSAGE_CHARACTERS) return { messages: [], error: "The message and document text exceed 100,000 characters. Please shorten the upload." };
     const rawImages = Array.isArray(item.images)
       ? item.images
       : item.image && typeof item.image === "object"

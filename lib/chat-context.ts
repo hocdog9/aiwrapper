@@ -1,6 +1,6 @@
 export const MAX_CONTEXT_MESSAGES = 12;
-export const MAX_CONTEXT_CHARACTERS = 24_000;
-export const MAX_MESSAGE_CHARACTERS = 4_000;
+export const MAX_CONTEXT_CHARACTERS = 120_000;
+export const MAX_MESSAGE_CHARACTERS = 100_000;
 
 // Keep the newest contiguous history without changing the stored conversation.
 export function recentChatContext<T extends { role: string; content: string }>(messages: T[]): T[] {

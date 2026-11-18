@@ -33,7 +33,7 @@ for (const bookType of ["xlsx", "xls"] as const) test(`${bookType} retains multi
   assert.match(text, /Worksheet: Costs\nCosts,12/);
 });
 test("oversized extracted documents and broken Office files are rejected", async () => {
-  const data = await archive({ "word/document.xml": `<document><p><t>${"x".repeat(4001)}</t></p></document>` });
-  await assert.rejects(extractOfficeText(data, "large.docx"), /4,000/);
+  const data = await archive({ "word/document.xml": `<document><p><t>${"x".repeat(100001)}</t></p></document>` });
+  await assert.rejects(extractOfficeText(data, "large.docx"), /100,000/);
   await assert.rejects(extractOfficeText(new Uint8Array([1, 2, 3]), "broken.docx"));
 });

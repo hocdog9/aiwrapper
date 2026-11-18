@@ -1,8 +1,9 @@
+import { MAX_MESSAGE_CHARACTERS } from "./chat-context";
 import JSZip from "jszip";
 import { XMLParser, XMLValidator } from "fast-xml-parser";
 import * as XLSX from "xlsx";
 
-const MAX_EXTRACTED = 4000;
+const MAX_EXTRACTED = MAX_MESSAGE_CHARACTERS;
 const parser = new XMLParser({ preserveOrder: true, ignoreAttributes: false, trimValues: false, parseTagValue: false });
 type XmlNode = { [key: string]: XmlNode[] | string | Record<string, string> };
 const localName = (name: string) => name.split(":").pop();
@@ -25,7 +26,7 @@ function text(nodes: XmlNode[]): string {
   }).join("")).join("");
 }
 function bounded(value: string): string {
-  if (value.length > MAX_EXTRACTED) throw new Error("This document contains more than 4,000 characters. Upload a smaller selection of pages, slides or cells; nothing was truncated.");
+  if (value.length > MAX_EXTRACTED) throw new Error("This document contains more than 100,000 characters. Upload a smaller selection of pages, slides or cells; nothing was truncated.");
   return value;
 }
 async function readXml(zip: JSZip, path: string) {

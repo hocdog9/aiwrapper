@@ -16,10 +16,14 @@ test("text attachment contents become part of the model prompt", () => {
     "Summarize\n\nAttached file: notes.txt\nSupply rises.");
 });
 test("limits reject oversized combined input instead of silently truncating files", () => {
-  assert.throws(() => validateAttachments("x".repeat(3990), [], [{ name: "a.txt", text: "Some data" }]), /4,000/);
+  assert.throws(() => validateAttachments("x".repeat(99990), [], [{ name: "a.txt", text: "Some data" }]), /100,000/);
   assert.throws(() => validateAttachments("", [], Array(5).fill({ name: "a.txt", text: "x" })), /4 documents/);
   const image = { dataUrl: "data:image/png;base64,YQ==", mimeType: "image/png" };
   assert.throws(() => validateAttachments("", Array(5).fill(image), []), /4 images/);
   assert.doesNotThrow(() => validateAttachments("", [image], []));
   assert.throws(() => classifyFile({ name: "large.png", type: "image/png", size: 4 * 1024 * 1024 }), /3 MB/);
+});
+
+test("larger document uploads fit the expanded message budget", () => {
+  assert.doesNotThrow(() => validateAttachments("Summarize", [], [{ name: "report.txt", text: "a".repeat(80000) }]));
 });
