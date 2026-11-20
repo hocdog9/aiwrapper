@@ -1094,7 +1094,7 @@ export default function Home() {
           <p className={styles.statusLine}>{statusText}</p>
           {usageSummary && userId && <button type="button" className={styles.authSwitch} onClick={() => setShowSettings(true)}>{usageSummary.plan === "free" ? "Free" : "Premium"} · {usageSummary.creditsRemaining} requests left</button>}
         </div>
-        <section className={styles.sidebarCard} aria-label="Projects">
+        <section className={`${styles.sidebarCard} ${styles.projectsPanel}`} aria-label="Projects">
           <div className={styles.historyHeader}>
             <p className={styles.mutedLabel}>Projects</p>
             <button type="button" className={styles.profileButton} disabled={!projectReady || projectBusy || isLoading} onClick={() => void createProject()}>New project</button>

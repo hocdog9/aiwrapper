@@ -1424,3 +1424,33 @@
   flex: 1;
   overflow-wrap: anywhere;
 }
+
+.projectsPanel {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 18px 16px;
+}
+
+.projectsPanel .historyHeader {
+  gap: 16px;
+  padding: 0;
+  flex-wrap: wrap;
+}
+
+.projectsPanel .historyHeader .profileButton {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.projectsPanel > label {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding-top: 4px;
+}
+
+.projectsPanel > p,
+.projectsPanel .projectFiles {
+  margin: 0;
+}
