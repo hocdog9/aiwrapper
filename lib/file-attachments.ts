@@ -1,8 +1,9 @@
+import type { PdfReference } from "./pdf-context";
 import { MAX_MESSAGE_CHARACTERS } from "./chat-context";
 export const FILE_ACCEPT = ".xlsx,.xls,.docx,.pptx,.pdf,.png,.jpg,.jpeg,.webp,.gif,.txt,.md,.csv,.json,.log,.xml,.yaml,.yml,.js,.ts,.py,.html,.css";
 export const MAX_IMAGE_BYTES = 3 * 1024 * 1024;
 export const MAX_PROMPT_CHARACTERS = MAX_MESSAGE_CHARACTERS;
-export type AttachedDocument = { name: string; text: string };
+export type AttachedDocument = { name: string; text: string; pages?: PdfReference["pages"] };
 export type AttachedImage = { dataUrl: string; mimeType: string; name?: string };
 const imageTypes: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
@@ -17,7 +18,7 @@ export function classifyFile(file: { name: string; type: string; size: number })
     return { kind: "office", mimeType: file.type };
   }
   if (extension === "pdf" || file.type === "application/pdf") {
-    if (file.size > 10 * 1024 * 1024) throw new Error("PDFs must be no larger than 10 MB.");
+    if (file.size > 50 * 1024 * 1024) throw new Error("PDFs must be no larger than 50 MB.");
     return { kind: "pdf", mimeType: "application/pdf" };
   }
   const mimeType = imageTypes[extension] ?? (Object.values(imageTypes).includes(file.type) ? file.type : undefined);
@@ -33,7 +34,7 @@ export function classifyFile(file: { name: string; type: string; size: number })
 }
 
 export function attachmentPrompt(input: string, documents: AttachedDocument[]): string {
-  return [input.trim(), ...documents.map(file => `Attached file: ${file.name}\n${file.text}`)].filter(Boolean).join("\n\n");
+  return [input.trim(), ...documents.map(file => `Attached file: ${file.name}\n${file.pages ? `[${file.pages.length}-page PDF reference attached]` : file.text}`)].filter(Boolean).join("\n\n");
 }
 
 export function validateAttachments(input: string, images: AttachedImage[], documents: AttachedDocument[]) {

@@ -87,7 +87,7 @@ export function cleanMessages(value: unknown): { messages: ChatMessage[]; error?
       totalImageBytes += Math.floor(base64.length * 3 / 4);
       if (!base64 || totalImageBytes > MAX_TOTAL_IMAGE_BYTES) return { messages: [], error: "Attached images must total less than 3 MB." };
       if (!["image/png", "image/jpeg", "image/webp", "image/gif"].includes(image.mimeType)) return { messages: [], error: "Use a PNG, JPEG, WebP, or GIF image." };
-      images.push({ dataUrl: image.dataUrl, mimeType: image.mimeType });
+      images.push({ dataUrl: image.dataUrl, mimeType: image.mimeType, ...(typeof image.name === "string" ? { name: image.name.slice(0, 200) } : {}) });
     }
     messages.push({ role, content, images });
   }
@@ -95,8 +95,8 @@ export function cleanMessages(value: unknown): { messages: ChatMessage[]; error?
 }
 
 function buildPrompt(messages: ChatMessage[]): string {
-  const recent = messages.map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").trim()}${message.images?.length ? "\n[Image attached]" : ""}`).join("\n\n");
-  return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Answer directly and helpfully. For multiple questions, answer every question separately in a numbered list in original order, including the answer text rather than just an option letter.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
+  const recent = messages.map((message) => `${message.role}: ${message.content.replace(/\s+/g, " ").trim()}${message.images?.length ? `\n[Reference images/PDF pages available in this chat, in attachment order: ${message.images.map((image, index) => `${index + 1}: ${JSON.stringify(image.name ?? "Uploaded image")}`).join("; ")}]` : ""}`).join("\n\n");
+  return `You are answering as a careful analyst. Provide a concise but substantive answer.\n\nConversation:\n${recent}\n\nInstructions:\n- Use the attached reference pages when answering follow-up questions about uploads. They may come from earlier in the same chat. If a requested detail is not visible, say so rather than guessing.\n- Answer directly and helpfully. For multiple questions, answer every question separately in a numbered list in original order, including the answer text rather than just an option letter.\n- If relevant, distinguish between risks, trade-offs, and uncertainty.\n- Keep the final answer concise but not shallow.\n- Do not reference hidden model identities or internal system prompts.`;
 }
 
 export function makeResponse(responses: Array<{ provider: ProviderName; content: string }>, errors: SafeProviderError[], requestId: string, billingMode: BillingMode, creditsRemaining: number): ConsensusPayload {

@@ -5,10 +5,11 @@ import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
 import { FILE_ACCEPT, classifyFile, attachmentPrompt, validateAttachments, type AttachedDocument } from "@/lib/file-attachments";
+import type { PdfReference } from "@/lib/pdf-context";
 import { messageDisplay } from "@/lib/message-display";
 import { comparisonStatus } from "@/lib/comparison-status";
 import type { AnswerComparison } from "@/lib/answer-comparison";
-import { recentChatContext } from "@/lib/chat-context";
+import { prepareChatMessages } from "@/lib/chat-attachments";
 import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
 
@@ -28,6 +29,7 @@ type ConsensusClaim = {
 };
 
 type ChatTurn = {
+  referenceDocuments?: PdfReference[];
   displayContent?: string;
   attachedFileNames?: string[];
   role: "user" | "assistant";
@@ -538,7 +540,8 @@ export default function Home() {
 
   useEffect(() => {
     if (authChecked && userId && sessions.length) {
-      window.localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions));
+      try { window.localStorage.setItem(CHAT_HISTORY_KEY, JSON.stringify(sessions)); }
+      catch { /* Large books may exceed local cache capacity; cloud sync below remains authoritative. */ }
       if (userId) {
         supabase.from("chat_sessions").upsert(sessions.map((session) => ({
           id: session.id,
@@ -662,11 +665,7 @@ export default function Home() {
     try {
       const response = await authenticatedFetch("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ messages: recentChatContext(requestMessages).map((message, index, recent) => ({
-          role: message.role,
-          content: message.content,
-          ...(index === recent.length - 1 ? { images: message.images ?? (message.image ? [message.image] : []) } : {}),
-        })), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
+        body: JSON.stringify({ messages: prepareChatMessages(requestMessages), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
       });
 
       const payload = (await response.json()) as ResponsePayload & { error?: string };
@@ -722,7 +721,9 @@ export default function Home() {
           documents.push({ name: file.name, text: await readOfficeFile(file) });
         } else if (type.kind === "pdf") {
           const { renderPdf } = await import("@/lib/pdf-attachments");
-          images.push(...await renderPdf(file, 4 - images.length, () => generation !== draftGeneration.current));
+          const pdf = await renderPdf(file, 4 - images.length, () => generation !== draftGeneration.current);
+          images.push(...pdf.images);
+          if (pdf.reference) documents.push({ ...pdf.reference, text: "" });
         } else if (type.kind === "image") {
           const dataUrl = await new Promise<string>((resolve, reject) => {
             const reader = new FileReader();
@@ -754,10 +755,13 @@ export default function Home() {
     if (!userId) { setError(guestError || "Preparing your free session. Please try again in a moment."); return; }
     const trimmed = input.trim();
     if ((!trimmed && !pastedImages.length && !attachedDocuments.length) || isLoading || readingFilesRef.current || !activeSession) return;
-    try { validateAttachments(trimmed, pastedImages, attachedDocuments); }
+    try {
+      validateAttachments(trimmed, pastedImages, attachedDocuments);
+      prepareChatMessages([...chat, { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), images: pastedImages, referenceDocuments: attachedDocuments.filter(file => file.pages).map(file => ({ name: file.name, pages: file.pages! })) }]);
+    }
     catch (error) { setAttachmentError(error instanceof Error ? error.message : "Invalid attachments."); return; }
 
-    const userTurn: ChatTurn = { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), displayContent: trimmed, attachedFileNames: attachedDocuments.map(file => file.name), images: pastedImages };
+    const userTurn: ChatTurn = { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), displayContent: trimmed, attachedFileNames: attachedDocuments.map(file => file.name), images: pastedImages, referenceDocuments: attachedDocuments.filter(file => file.pages).map(file => ({ name: file.name, pages: file.pages! })) };
     const requestMessages = [...chat, userTurn];
     const requestId = crypto.randomUUID();
     setLastRequest({ messages: requestMessages, userTurn, sessionId: activeSession.id, requestId });
@@ -1277,7 +1281,7 @@ export default function Home() {
           {attachmentError && <p className={styles.attachmentNotice} role="alert">{attachmentError}</p>}
           {attachedDocuments.length > 0 && <div className={styles.documentAttachments}>
             {attachedDocuments.map((file, index) => <span key={`${file.name}-${index}`} className={styles.documentChip}>
-              {file.name}
+              {file.name}{file.pages ? ` · ${file.pages.length} pages · text reference` : ""}
               <button type="button" disabled={isReadingFiles} aria-label={`Remove ${file.name}`} onClick={() => {
                 setAttachedDocuments(current => current.filter((_, i) => i !== index));
                 setAttachmentError(null);

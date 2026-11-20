@@ -6,7 +6,7 @@ import type { ContentBlockParam, ImageBlockParam } from "@anthropic-ai/sdk/resou
 import { GoogleGenAI } from "@google/genai";
 import type { ProviderName } from "./model-pricing";
 
-export type ImageAttachment = { dataUrl: string; mimeType: string };
+export type ImageAttachment = { dataUrl: string; mimeType: string; name?: string };
 export type ProviderResult = {
   provider: ProviderName;
   model: string;
