@@ -1404,3 +1404,23 @@
   overflow-wrap: anywhere;
   padding: 4px 6px;
 }
+
+.projectFiles {
+  list-style: none;
+  padding: 0;
+  margin: 12px 0;
+  display: grid;
+  gap: 8px;
+}
+
+.projectFiles li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.8rem;
+}
+
+.projectFiles li span {
+  flex: 1;
+  overflow-wrap: anywhere;
+}

@@ -9,7 +9,7 @@ import type { PdfReference } from "@/lib/pdf-context";
 import { messageDisplay } from "@/lib/message-display";
 import { comparisonStatus } from "@/lib/comparison-status";
 import type { AnswerComparison } from "@/lib/answer-comparison";
-import { prepareChatMessages } from "@/lib/chat-attachments";
+import { prepareProjectMessages, type Project, type ProjectFile } from "@/lib/project-context";
 import { supabase } from "@/lib/supabase";
 import styles from "./page.module.css";
 
@@ -60,6 +60,7 @@ type ResponsePayload = {
 };
 
 type ChatSession = {
+  project_id?: string | null;
   id: string;
   title: string;
   chat: ChatTurn[];
@@ -329,6 +330,12 @@ function ConsensusDetails({
 
 export default function Home() {
   const [input, setInput] = useState("");
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectReady, setProjectReady] = useState(false);
+  const [projectError, setProjectError] = useState("");
+  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [projectBusy, setProjectBusy] = useState(false);
+  const projectFileInputRef = useRef<HTMLInputElement | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatIdState] = useState("");
   const [isLoading, setIsLoading] = useState(false);
@@ -399,12 +406,16 @@ export default function Home() {
 
   const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string; retryable?: boolean } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
+  const activeProject = projects.find(project => project.id === selectedProjectId);
+  const visibleSessions = sessions.filter(session => (session.project_id ?? null) === selectedProjectId);
   const chat = activeSession?.chat ?? EMPTY_CHAT;
   const result = activeSession?.result ?? null;
 
   useEffect(() => {
     let active = true;
     async function loadAccount() {
+      setProjectReady(false);
+      setProjects([]);
       try { await ensureBrowserSession(); }
       catch (guestFailure) {
         if (active) {
@@ -428,6 +439,7 @@ export default function Home() {
         const firstSession = createChatSession();
         setSessions([firstSession]);
         setActiveChatId(firstSession.id);
+        setSelectedProjectId(null);
         setUserEmail("");
         setUserId("");
         setAuthChecked(true);
@@ -473,9 +485,14 @@ export default function Home() {
         const usagePayload = await usageResponse.json() as { error?: string };
         setProfileSyncError(usagePayload.error ?? "Billing account unavailable.");
       }
+      const { data: remoteProjects, error: projectsError } = await supabase.from("projects").select("id, name, files").order("created_at");
+      if (!active) return;
+      setProjects((remoteProjects ?? []) as Project[]);
+      setProjectReady(!projectsError);
+      setProjectError(projectsError ? "Projects need setup: run supabase/projects_migration.sql in your Supabase SQL Editor." : "");
       const { data: remoteChats, error: chatError } = await supabase
         .from("chat_sessions")
-        .select("id, title, chat, result")
+        .select("*")
         .order("updated_at", { ascending: false });
       if (chatError) {
         setProfileSyncError(`Chat history error: ${chatError.message}`);
@@ -483,10 +500,12 @@ export default function Home() {
         const nextSessions = remoteChats as ChatSession[];
         setSessions(nextSessions.map(hydrateSessionResults));
         setActiveChatId(nextSessions[0].id);
+        setSelectedProjectId(nextSessions[0].project_id ?? null);
       } else {
         const firstSession = createChatSession();
         setSessions([firstSession]);
         setActiveChatId(firstSession.id);
+        setSelectedProjectId(null);
       }
       setProfilesLoaded(true);
       setAuthChecked(true);
@@ -547,6 +566,7 @@ export default function Home() {
           id: session.id,
           user_id: userId,
           title: session.title,
+          ...(projectReady ? { project_id: session.project_id ?? null } : {}),
           chat: session.chat,
           result: session.result,
           updated_at: new Date().toISOString(),
@@ -555,7 +575,7 @@ export default function Home() {
         });
       }
     }
-  }, [authChecked, sessions, userEmail, userId]);
+  }, [authChecked, sessions, userEmail, userId, projectReady]);
 
   useEffect(() => {
     const storedTheme = window.localStorage.getItem(THEME_KEY);
@@ -665,7 +685,7 @@ export default function Home() {
     try {
       const response = await authenticatedFetch("/api/chat", {
         method: "POST",
-        body: JSON.stringify({ messages: prepareChatMessages(requestMessages), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
+        body: JSON.stringify({ messages: prepareProjectMessages(requestMessages, projects.find(project => project.id === sessions.find(session => session.id === sessionId)?.project_id)?.files ?? []), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
       });
 
       const payload = (await response.json()) as ResponsePayload & { error?: string };
@@ -704,17 +724,22 @@ export default function Home() {
     }
   }
 
-  async function attachFiles(files: File[]) {
+  async function attachFiles(files: File[], projectId?: string) {
     if (!files.length || isLoading || readingFilesRef.current) return;
     readingFilesRef.current = true;
     setIsReadingFiles(true);
     setAttachmentError(null);
     const generation = draftGeneration.current;
     try {
-      const images = [...pastedImages];
-      const documents = [...attachedDocuments];
+      const project = projectId ? projects.find(p => p.id === projectId) : undefined;
+      if (projectId && !project) throw new Error("Project not found.");
+      const images = project ? project.files.flatMap(file => file.images) : [...pastedImages];
+      const documents = project ? project.files.flatMap(file => file.documents) : [...attachedDocuments];
+      const newProjectFiles: ProjectFile[] = [];
       if (files.length + images.length + documents.length > 8) throw new Error("Attach up to 4 images and 4 documents.");
       for (const file of files) {
+        const imageStart = images.length;
+        const documentStart = documents.length;
         const type = classifyFile(file);
         if (type.kind === "office") {
           const { readOfficeFile } = await import("@/lib/office-attachments");
@@ -737,8 +762,15 @@ export default function Home() {
           if (!text.trim() || text.includes("\0")) throw new Error(`${file.name} does not contain readable text.`);
           documents.push({ name: file.name, text });
         }
+        if (project) newProjectFiles.push({ id: crypto.randomUUID(), name: file.name, images: images.slice(imageStart), documents: documents.slice(documentStart) });
       }
-      validateAttachments(input, images, documents);
+      validateAttachments(project ? "" : input, images, documents);
+      if (project) {
+        const nextFiles = [...project.files, ...newProjectFiles];
+        prepareProjectMessages([{ role: "user", content: "Reference these project files" }], nextFiles);
+        await saveProjectFiles(project.id, nextFiles);
+        return;
+      }
       if (generation !== draftGeneration.current) return;
       setPastedImages(images);
       setAttachedDocuments(documents);
@@ -757,7 +789,7 @@ export default function Home() {
     if ((!trimmed && !pastedImages.length && !attachedDocuments.length) || isLoading || readingFilesRef.current || !activeSession) return;
     try {
       validateAttachments(trimmed, pastedImages, attachedDocuments);
-      prepareChatMessages([...chat, { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), images: pastedImages, referenceDocuments: attachedDocuments.filter(file => file.pages).map(file => ({ name: file.name, pages: file.pages! })) }]);
+      prepareProjectMessages([...chat, { role: "user", content: attachmentPrompt(trimmed, attachedDocuments), images: pastedImages, referenceDocuments: attachedDocuments.filter(file => file.pages).map(file => ({ name: file.name, pages: file.pages! })) }], activeProject?.files ?? []);
     }
     catch (error) { setAttachmentError(error instanceof Error ? error.message : "Invalid attachments."); return; }
 
@@ -814,8 +846,61 @@ export default function Home() {
       answer.result.retryable ? answer.result.requestId : undefined);
   }
 
+  function openProject(projectId: string | null) {
+    setSelectedProjectId(projectId);
+    const existing = sessions.find(session => (session.project_id ?? null) === projectId);
+    if (existing) setActiveChatId(existing.id);
+    else {
+      const session = { ...createChatSession(), project_id: projectId };
+      setSessions(current => [session, ...current]);
+      setActiveChatId(session.id);
+    }
+    setLastRequest(null);
+    setInput("");
+    setError(null);
+  }
+
+  async function createProject() {
+    const name = window.prompt("Project name")?.trim().slice(0, 100);
+    if (!name || !userId || !projectReady) return;
+    setProjectBusy(true);
+    const project: Project = { id: crypto.randomUUID(), name, files: [] };
+    const { error } = await supabase.from("projects").insert({ ...project, user_id: userId });
+    setProjectBusy(false);
+    if (error) { setProjectError(error.message); return; }
+    setProjects(current => [...current, project]);
+    setProjectError("");
+    openProject(project.id);
+  }
+
+  async function renameProject() {
+    if (!activeProject) return;
+    const name = window.prompt("Project name", activeProject.name)?.trim().slice(0, 100);
+    if (!name) return;
+    setProjectBusy(true);
+    const { error } = await supabase.from("projects").update({ name, updated_at: new Date().toISOString() }).eq("id", activeProject.id).eq("user_id", userId);
+    setProjectBusy(false);
+    if (error) { setProjectError(error.message); return; }
+    setProjects(current => current.map(p => p.id === activeProject.id ? { ...p, name } : p));
+  }
+
+  async function saveProjectFiles(projectId: string, files: ProjectFile[]) {
+    const { error } = await supabase.from("projects").update({ files, updated_at: new Date().toISOString() }).eq("id", projectId).eq("user_id", userId);
+    if (error) throw new Error(`Project files could not be saved: ${error.message}`);
+    setProjects(current => current.map(p => p.id === projectId ? { ...p, files } : p));
+    setProjectError("");
+  }
+
+  async function removeProjectFile(id: string) {
+    if (!activeProject || !window.confirm("Remove this shared file from the project? Future messages in all its chats will no longer use it.")) return;
+    setProjectBusy(true);
+    try { await saveProjectFiles(activeProject.id, activeProject.files.filter(file => file.id !== id)); }
+    catch (error) { setProjectError(error instanceof Error ? error.message : "Could not remove file."); }
+    finally { setProjectBusy(false); }
+  }
+
   function startNewChat() {
-    const newSession = createChatSession();
+    const newSession = { ...createChatSession(), project_id: selectedProjectId };
     setLastRequest(null);
     setSessions((current) => [newSession, ...current]);
     setActiveChatId(newSession.id);
@@ -943,6 +1028,9 @@ export default function Home() {
     const signedOutChat = createChatSession();
     setSessions([signedOutChat]);
     setActiveChatId(signedOutChat.id);
+    setSelectedProjectId(null);
+    setProjects([]);
+    setProjectReady(false);
     setUserEmail("");
     setUserId("");
     setIsGuest(true);
@@ -954,13 +1042,14 @@ export default function Home() {
 
     const remaining = sessions.filter((item) => item.id !== session.id);
     if (!remaining.length) {
-      const newSession = createChatSession();
+      const newSession = { ...createChatSession(), project_id: selectedProjectId };
       setSessions([newSession]);
       setActiveChatId(newSession.id);
     } else {
       setSessions(remaining);
       if (session.id === activeChatId) {
         setActiveChatId(remaining[0].id);
+        setSelectedProjectId(remaining[0].project_id ?? null);
       }
     }
     if (userId) {
@@ -1005,13 +1094,51 @@ export default function Home() {
           <p className={styles.statusLine}>{statusText}</p>
           {usageSummary && userId && <button type="button" className={styles.authSwitch} onClick={() => setShowSettings(true)}>{usageSummary.plan === "free" ? "Free" : "Premium"} · {usageSummary.creditsRemaining} requests left</button>}
         </div>
+        <section className={styles.sidebarCard} aria-label="Projects">
+          <div className={styles.historyHeader}>
+            <p className={styles.mutedLabel}>Projects</p>
+            <button type="button" className={styles.profileButton} disabled={!projectReady || projectBusy || isLoading} onClick={() => void createProject()}>New project</button>
+          </div>
+          <select className={styles.settingsInput} aria-label="Project workspace" value={selectedProjectId ?? ""} disabled={isLoading || isReadingFiles || projectBusy} onChange={event => openProject(event.target.value || null)}>
+            <option value="">Personal chats</option>
+            {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+          </select>
+          {activeProject && <>
+            <p className={styles.settingsNote}>Files here are available to every chat in this project. Chat messages stay separate.</p>
+            <div className={styles.actionRow}>
+              <button type="button" className={styles.profileButton} disabled={projectBusy} onClick={() => void renameProject()}>Rename</button>
+              <button type="button" className={styles.profileButton} disabled={projectBusy || isReadingFiles || isLoading} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
+            </div>
+            <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
+              void attachFiles(Array.from(event.target.files ?? []), activeProject.id);
+              event.target.value = "";
+            }} />
+            <ul className={styles.projectFiles}>
+              {activeProject.files.map(file => <li key={file.id}><span>{file.name}</span><button type="button" className={styles.deleteButton} disabled={projectBusy || isReadingFiles || isLoading} aria-label={`Remove shared file ${file.name}`} onClick={() => void removeProjectFile(file.id)}>×</button></li>)}
+            </ul>
+            {!activeProject.files.length && <p className={styles.settingsNote}>No shared files yet.</p>}
+          </>}
+          {activeSession && projectReady && <label className={styles.settingsNote}>
+            Move current chat to
+            <select className={styles.settingsInput} aria-label="Move current chat to project" value={activeSession.project_id ?? ""} disabled={isLoading || isReadingFiles || projectBusy} onChange={event => {
+              const projectId = event.target.value || null;
+              setSessions(current => current.map(session => session.id === activeSession.id ? { ...session, project_id: projectId } : session));
+              setSelectedProjectId(projectId);
+              setLastRequest(null);
+            }}>
+              <option value="">Personal chats</option>
+              {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
+            </select>
+          </label>}
+          {projectError && <p role="alert" className={styles.authError}>{projectError}</p>}
+        </section>
         <div className={styles.historyPanel}>
           <div className={styles.historyHeader}>
-            <p className={styles.mutedLabel}>Chat history</p>
-            <span>{sessions.length}</span>
+            <p className={styles.mutedLabel}>{activeProject ? activeProject.name : "Chat history"}</p>
+            <span>{visibleSessions.length}</span>
           </div>
           <div className={styles.historyList}>
-            {sessions.map((session) => (
+            {visibleSessions.map((session) => (
               <div key={session.id} className={`${styles.historyItem} ${session.id === activeSession?.id ? styles.activeHistoryItem : ""}`}>
                 <button type="button" className={styles.historySelect} onClick={() => {
                   setActiveChatId(session.id);
