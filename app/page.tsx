@@ -339,7 +339,7 @@ export default function Home() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatIdState] = useState("");
   const [isLoading, setIsLoading] = useState(false);
-  const [statusText, setStatusText] = useState("Ready to compare model responses.");
+  const [, setStatusText] = useState("Ready to compare model responses.");
   const [error, setError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
   const [attachedDocuments, setAttachedDocuments] = useState<AttachedDocument[]>([]);
@@ -1080,7 +1080,7 @@ export default function Home() {
           <div className={styles.actionRow}>
             <button type="button" className={`${styles.newChatButton} ${styles.sidebarIconButton}`} onClick={startNewChat} aria-label="New chat" title="New chat">
               <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                <path d="M21 11v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h9M16 3l5 5M10 14l-1 4 4-1L22 8l-3-3-9 9Z" />
+                <path d="M12 5v14M5 12h14" />
               </svg>
             </button>
             <button type="button" className={`${styles.themeButton} ${styles.sidebarIconButton}`} onClick={() => setIsDark((current) => !current)} aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"} title={isDark ? "Switch to light theme" : "Switch to dark theme"}>
@@ -1095,11 +1095,10 @@ export default function Home() {
             </button>
           </div>
         </div>
-        <div className={styles.sidebarCard}>
-          <p className={styles.mutedLabel}>Current status</p>
-          <p className={styles.statusLine}>{statusText}</p>
-          {usageSummary && userId && <button type="button" className={styles.authSwitch} onClick={() => setShowSettings(true)}>{usageSummary.plan === "free" ? "Free" : "Premium"} · {usageSummary.creditsRemaining} requests left</button>}
-        </div>
+        {(error || profileSyncError || guestError) && <div className={styles.sidebarCard} role="alert">
+          <p className={styles.mutedLabel}>Error</p>
+          <p className={styles.statusLine}>{error || profileSyncError || guestError}</p>
+        </div>}
         <section className={`${styles.sidebarCard} ${styles.projectsPanel}`} aria-label="Projects">
           <div className={styles.historyHeader}>
             <p className={styles.mutedLabel}>Projects</p>
