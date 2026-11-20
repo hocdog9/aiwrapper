@@ -1454,3 +1454,16 @@
 .projectsPanel .projectFiles {
   margin: 0;
 }
+
+.sidebarIconButton {
+  width: 42px;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sidebarIconButton:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 3px;
+}

@@ -1078,14 +1078,20 @@ export default function Home() {
             </div>
           </div>
           <div className={styles.actionRow}>
-            <button type="button" className={styles.newChatButton} onClick={startNewChat}>
-              New chat
+            <button type="button" className={`${styles.newChatButton} ${styles.sidebarIconButton}`} onClick={startNewChat} aria-label="New chat" title="New chat">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="M21 11v9a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h9M16 3l5 5M10 14l-1 4 4-1L22 8l-3-3-9 9Z" />
+              </svg>
             </button>
-            <button type="button" className={styles.themeButton} onClick={() => setIsDark((current) => !current)}>
-              {isDark ? "Light" : "Dark"}
+            <button type="button" className={`${styles.themeButton} ${styles.sidebarIconButton}`} onClick={() => setIsDark((current) => !current)} aria-label={isDark ? "Switch to light theme" : "Switch to dark theme"} title={isDark ? "Switch to light theme" : "Switch to dark theme"}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                {isDark ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M5 5l1.5 1.5m11 11L19 19M5 19l1.5-1.5m11-11L19 5" /></> : <path d="M21 13a9 9 0 1 1-10-10 7 7 0 0 0 10 10Z" />}
+              </svg>
             </button>
-            <button type="button" className={styles.themeButton} onClick={() => setShowSettings((current) => !current)}>
-              {showSettings ? "Close settings" : "Settings"}
+            <button type="button" className={`${styles.themeButton} ${styles.sidebarIconButton}`} onClick={() => setShowSettings((current) => !current)} aria-label={showSettings ? "Close settings" : "Settings"} title={showSettings ? "Close settings" : "Settings"} aria-expanded={showSettings}>
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 3-.5 2-2 1L4.5 5.5l-2 3.5L4 10.5v3L2.5 15l2 3.5 2-.5 2 1 .5 2h6l.5-2 2-1 2 .5 2-3.5-1.5-1.5v-3L21.5 9l-2-3.5-2 .5-2-1-.5-2Z" /><circle cx="12" cy="12" r="3" />
+              </svg>
             </button>
           </div>
         </div>
