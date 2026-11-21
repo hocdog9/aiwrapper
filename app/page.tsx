@@ -1146,7 +1146,17 @@ export default function Home() {
       <button type="button" className={styles.historySelect} disabled={navigationBusy} title={session.title} onClick={() => {
         setActiveChatId(session.id); setSelectedProjectId(session.project_id ?? null); setError(null); setInput("");
       }}>{session.title}</button>
-      <button type="button" className={styles.folderAction} disabled={navigationBusy} aria-label={`Actions for ${session.title}`} title="Chat actions" onClick={event => showChatMenu(session.id, event.clientX, event.clientY)}>⋯</button>
+      <button type="button" className={styles.folderAction} disabled={navigationBusy} title="Rename chat" aria-label={`Rename chat ${session.title}`} onClick={() => renameChat(session)}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="m16 3 5 5L8 21H3v-5ZM14 5l5 5" />
+        </svg>
+      </button>
+      <button type="button" className={`${styles.folderAction} ${styles.dangerAction}`} disabled={navigationBusy} title="Delete chat" aria-label={`Delete chat ${session.title}`} onClick={() => deleteChat(session)}>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+          <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
+        </svg>
+      </button>
+      <button type="button" className={styles.folderAction} disabled={navigationBusy} aria-label={`Move chat ${session.title}`} title="Move chat" onClick={event => showChatMenu(session.id, event.clientX, event.clientY)}>⋯</button>
     </div>;
   }
 
@@ -1246,9 +1256,6 @@ export default function Home() {
           {[{ id: null, name: "Chats" }, ...projects].map(project => <button key={project.id ?? "personal"} type="button" className={styles.folderRow}
             disabled={navigationBusy || !projectReady || (sessions.find(s => s.id === chatMenu)?.project_id ?? null) === project.id}
             onClick={() => moveChat(chatMenu, project.id)}>{folderIcon}<span>{project.name}</span></button>)}
-          <hr />
-          <button type="button" className={styles.folderRow} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) renameChat(session); }}>Rename chat</button>
-          <button type="button" className={`${styles.folderRow} ${styles.dangerAction}`} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) deleteChat(session); }}>Delete chat</button>
         </div>
       </div>}
 
