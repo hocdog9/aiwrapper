@@ -1316,7 +1316,7 @@
   z-index: 20;
   display: grid;
   gap: 14px;
-  width: min(300px, 85vw);
+  width: min(400px, 85vw);
   margin: 0;
   padding: 18px;
   border: 1px solid #94a3b866;
@@ -1500,3 +1500,6 @@
 .dangerAction:hover, .deleteButton:hover { color: #991b1b; }
 .dark .dangerAction, .dark .deleteButton { color: #f87171; }
 .dark .dangerAction:hover, .dark .deleteButton:hover { color: #fca5a5; }
+
+.modelPickerRow { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 12px; }
+.modelPickerRow .settingsInput { min-width: 0; width: 100%; margin: 0; }

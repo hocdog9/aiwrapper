@@ -1572,7 +1572,9 @@ export default function Home() {
             <fieldset className={styles.modelPickerMenu}>
               <legend>Models for your next message</legend>
               {(["GPT", "Gemini", "Claude"] as ProviderName[]).map(provider => (
-                <label key={provider} className={styles.providerCheck}>
+                <div key={provider}>
+                <div className={styles.modelPickerRow}>
+                <label className={styles.providerCheck}>
                   <input type="checkbox" checked={settings[provider].enabled}
                     disabled={isLoading || (settings[provider].enabled &&
                       (["GPT", "Gemini", "Claude"] as ProviderName[]).filter(p => settings[p].enabled).length === 1)}
@@ -1581,11 +1583,15 @@ export default function Home() {
                     }))} />
                   {provider}
                 </label>
+                <select className={styles.settingsInput} aria-label={`${provider} model for your next message`}
+                  value={settings[provider].model} disabled={isLoading}
+                  onChange={event => void changeModel(provider, event.target.value)}>
+                  {modelCatalog[provider].map(modelId => <option key={modelId} value={modelId}>{modelId}</option>)}
+                </select>
+                </div>
+                {modelDiscoveryErrors[provider] && <p className={styles.authError}>{modelDiscoveryErrors[provider]}</p>}
+                </div>
               ))}
-              <button type="button" className={styles.profileButton} onClick={event => {
-                event.currentTarget.closest("details")?.removeAttribute("open");
-                setShowSettings(true);
-              }}>Model versions in Settings</button>
             </fieldset>
           </details>
           <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || isReadingFiles || (!input.trim() && !pastedImages.length && !attachedDocuments.length)}>
