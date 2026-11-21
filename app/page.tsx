@@ -886,15 +886,14 @@ export default function Home() {
     openProject(project.id);
   }
 
-  async function renameProject() {
-    if (!activeProject) return;
-    const name = window.prompt("Project name", activeProject.name)?.trim().slice(0, 100);
+  async function renameProject(project: Project) {
+    const name = window.prompt("Project name", project.name)?.trim().slice(0, 100);
     if (!name) return;
     setProjectBusy(true);
-    const { error } = await supabase.from("projects").update({ name, updated_at: new Date().toISOString() }).eq("id", activeProject.id).eq("user_id", userId);
+    const { error } = await supabase.from("projects").update({ name, updated_at: new Date().toISOString() }).eq("id", project.id).eq("user_id", userId);
     setProjectBusy(false);
     if (error) { setProjectError(error.message); return; }
-    setProjects(current => current.map(p => p.id === activeProject.id ? { ...p, name } : p));
+    setProjects(current => current.map(p => p.id === project.id ? { ...p, name } : p));
   }
 
   async function saveProjectFiles(projectId: string, files: ProjectFile[]) {
@@ -1169,20 +1168,26 @@ export default function Home() {
           {projects.map(project => {
             const expanded = expandedFolders.includes(project.id);
             return <div key={project.id}>
+              <div className={styles.folderHeading} {...folderDropHandlers(project.id)}>
               <button type="button" className={`${styles.folderRow} ${selectedProjectId === project.id ? styles.activeHistoryItem : ""} ${dropFolder === project.id ? styles.folderDrop : ""}`}
                 aria-expanded={expanded} disabled={navigationBusy} title={project.name}
                 onClick={() => {
                   setExpandedFolders(current => expanded ? current.filter(id => id !== project.id) : [...current, project.id]);
                   if (!expanded) openProject(project.id);
-                }} {...folderDropHandlers(project.id)}>
+                }}>
                 {folderIcon}<span>{project.name}</span><small aria-hidden="true">{expanded ? "⌄" : "›"}</small>
               </button>
+              <button type="button" className={styles.folderAction} disabled={navigationBusy} title="Rename folder" aria-label={`Rename folder ${project.name}`} onClick={() => void renameProject(project)}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="m16 3 5 5L8 21H3v-5ZM14 5l5 5" />
+                </svg>
+              </button>
+              </div>
               {expanded && <div className={styles.folderContents}>
                 {sessions.filter(session => session.project_id === project.id).map(renderChat)}
                 {!sessions.some(session => session.project_id === project.id) && <p className={styles.settingsNote}>Drop a chat here</p>}
                 {activeProject?.id === project.id && <details className={styles.folderTools}>
                   <summary>Project files &amp; options</summary>
-                  <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => void renameProject()}>Rename folder</button>
                   <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
                   <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
                     void attachFiles(Array.from(event.target.files ?? []), project.id);

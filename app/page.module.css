@@ -1485,3 +1485,6 @@
 .chatMenu { position: absolute; left: 16px; top: 120px; width: min(260px, calc(100vw - 32px)); max-height: calc(100dvh - 140px); overflow-y: auto; padding: 10px; border: 1px solid rgba(148,163,184,.3); border-radius: 12px; background: #fff; box-shadow: 0 12px 40px #0003; }
 .dark .chatMenu { background: #111827; }
 @media (max-width: 840px) { .sidebar { height: auto; max-height: 35dvh; flex-shrink: 0; } }
+
+.folderHeading { display: flex; align-items: center; gap: 2px; }
+.folderHeading > .folderRow { flex: 1; min-width: 0; }
