@@ -16,12 +16,12 @@
 }
 
 .sidebar {
-  width: 320px;
+  width: 248px;
   flex-shrink: 0;
   border-right: 1px solid #e5e7eb;
   background: rgba(255, 255, 255, 0.6);
   backdrop-filter: blur(6px);
-  padding: 24px 18px;
+  padding: 18px 12px;
   display: flex;
   flex-direction: column;
   gap: 18px;
@@ -1467,3 +1467,21 @@
   outline: 2px solid currentColor;
   outline-offset: 3px;
 }
+
+.folderTree { min-height: 0; overflow-y: auto; display: flex; flex-direction: column; gap: 5px; }
+.folderRow { display: flex; align-items: center; gap: 9px; width: 100%; border: 1px solid transparent; border-radius: 8px; padding: 9px 8px; color: inherit; background: transparent; font: inherit; font-size: .85rem; text-align: left; cursor: pointer; }
+.folderRow svg { flex-shrink: 0; }
+.folderRow span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1; }
+.folderRow:hover, .folderAction:hover { background: rgba(148,163,184,.13); }
+.folderRow:focus-visible, .folderAction:focus-visible { outline: 2px solid #60a5fa; outline-offset: -2px; }
+.folderRow:disabled, .folderAction:disabled { opacity: .45; cursor: default; }
+.folderDrop { background: rgba(96,165,250,.2); border-color: #60a5fa; }
+.folderContents { margin-left: 9px; padding-left: 9px; border-left: 1px solid rgba(148,163,184,.25); }
+.folderAction { display: inline-flex; justify-content: center; align-items: center; flex-shrink: 0; min-width: 28px; min-height: 30px; border: 0; border-radius: 6px; background: transparent; color: inherit; cursor: pointer; font-size: 18px; }
+.folderTools { padding: 6px 0; font-size: .75rem; }
+.folderTools summary { cursor: pointer; opacity: .75; }
+.personalChats { margin-top: 14px; font-weight: 600; }
+.chatMenuBackdrop { position: fixed; inset: 0; z-index: 50; background: rgba(0,0,0,.12); }
+.chatMenu { position: absolute; left: 16px; top: 120px; width: min(260px, calc(100vw - 32px)); max-height: calc(100dvh - 140px); overflow-y: auto; padding: 10px; border: 1px solid rgba(148,163,184,.3); border-radius: 12px; background: #fff; box-shadow: 0 12px 40px #0003; }
+.dark .chatMenu { background: #111827; }
+@media (max-width: 840px) { .sidebar { height: auto; max-height: 35dvh; flex-shrink: 0; } }

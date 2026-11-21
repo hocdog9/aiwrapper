@@ -338,6 +338,13 @@ export default function Home() {
   const [projectReady, setProjectReady] = useState(false);
   const [projectError, setProjectError] = useState("");
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(null);
+  const [expandedFolders, setExpandedFolders] = useState<string[]>([]);
+  const [draggedChat, setDraggedChat] = useState<string | null>(null);
+  const [dropFolder, setDropFolder] = useState<string | null>(null);
+  const [chatMenuPosition, setChatMenuPosition] = useState({ left: 16, top: 120 });
+  const [chatMenu, setChatMenu] = useState<string | null>(null);
+  const chatMenuRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => { if (chatMenu) chatMenuRef.current?.querySelector<HTMLButtonElement>("button")?.focus(); }, [chatMenu]);
   const [projectBusy, setProjectBusy] = useState(false);
   const projectFileInputRef = useRef<HTMLInputElement | null>(null);
   const [sessions, setSessions] = useState<ChatSession[]>([]);
@@ -411,7 +418,7 @@ export default function Home() {
   const [lastRequest, setLastRequest] = useState<{ messages: ChatTurn[]; userTurn: ChatTurn; sessionId: string; requestId: string; retryable?: boolean } | null>(null);
   const activeSession = sessions.find((session) => session.id === activeChatId) ?? sessions[0];
   const activeProject = projects.find(project => project.id === selectedProjectId);
-  const visibleSessions = sessions.filter(session => (session.project_id ?? null) === selectedProjectId);
+
   const chat = activeSession?.chat ?? EMPTY_CHAT;
   const result = activeSession?.result ?? null;
 
@@ -505,6 +512,7 @@ export default function Home() {
         setSessions(nextSessions.map(hydrateSessionResults));
         setActiveChatId(nextSessions[0].id);
         setSelectedProjectId(nextSessions[0].project_id ?? null);
+        setExpandedFolders(nextSessions[0].project_id ? [nextSessions[0].project_id] : []);
       } else {
         const firstSession = createChatSession();
         setSessions([firstSession]);
@@ -874,6 +882,7 @@ export default function Home() {
     if (error) { setProjectError(error.message); return; }
     setProjects(current => [...current, project]);
     setProjectError("");
+    setExpandedFolders(current => [...current, project.id]);
     openProject(project.id);
   }
 
@@ -1070,6 +1079,52 @@ export default function Home() {
     setStatusText("Ready to compare model responses.");
   }
 
+  const navigationBusy = isLoading || isReadingFiles || projectBusy;
+  const folderIcon = <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M3 7V5a2 2 0 0 1 2-2h5l2 3h7a2 2 0 0 1 2 2v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" /></svg>;
+  function moveChat(chatId: string, projectId: string | null) {
+    if (navigationBusy || !projectReady || !sessions.some(s => s.id === chatId) || (projectId && !projects.some(p => p.id === projectId))) return;
+    setSessions(current => current.map(session => session.id === chatId ? { ...session, project_id: projectId } : session));
+    if (chatId === activeChatId) {
+      setSelectedProjectId(projectId);
+      setLastRequest(null);
+    }
+    if (projectId) setExpandedFolders(current => current.includes(projectId) ? current : [...current, projectId]);
+    setChatMenu(null);
+    setDropFolder(null);
+    setDraggedChat(null);
+  }
+  function folderDropHandlers(projectId: string | null) {
+    return {
+      onDragOver: (event: React.DragEvent) => {
+        if (!draggedChat || navigationBusy || !projectReady) return;
+        event.preventDefault(); event.dataTransfer.dropEffect = "move";
+        setDropFolder(projectId ?? "personal");
+      },
+      onDragLeave: () => setDropFolder(null),
+      onDrop: (event: React.DragEvent) => {
+        event.preventDefault();
+        if (draggedChat && event.dataTransfer.getData("application/x-consensus-chat") === draggedChat) moveChat(draggedChat, projectId);
+        setDropFolder(null);
+      },
+    };
+  }
+  function showChatMenu(id: string, x: number, y: number) {
+    setChatMenuPosition({ left: Math.max(8, Math.min(x || 16, window.innerWidth - 276)), top: Math.max(8, Math.min(y || 120, window.innerHeight - 320)) });
+    setChatMenu(id);
+  }
+  function renderChat(session: ChatSession) {
+    return <div key={session.id} className={`${styles.historyItem} ${session.id === activeChatId ? styles.activeHistoryItem : ""}`}
+      draggable={!navigationBusy && projectReady}
+      onDragStart={event => { event.dataTransfer.setData("application/x-consensus-chat", session.id); event.dataTransfer.effectAllowed = "move"; setDraggedChat(session.id); }}
+      onDragEnd={() => { setDraggedChat(null); setDropFolder(null); }}
+      onContextMenu={event => { event.preventDefault(); if (!navigationBusy) showChatMenu(session.id, event.clientX, event.clientY); }}>
+      <button type="button" className={styles.historySelect} disabled={navigationBusy} title={session.title} onClick={() => {
+        setActiveChatId(session.id); setSelectedProjectId(session.project_id ?? null); setError(null); setInput("");
+      }}>{session.title}</button>
+      <button type="button" className={styles.folderAction} disabled={navigationBusy} aria-label={`Actions for ${session.title}`} title="Chat actions" onClick={event => showChatMenu(session.id, event.clientX, event.clientY)}>⋯</button>
+    </div>;
+  }
+
   return (
     <main className={`${styles.shell} ${isDark ? styles.dark : styles.light}`}>
       <aside className={styles.sidebar}>
@@ -1103,70 +1158,63 @@ export default function Home() {
           <p className={styles.mutedLabel}>Error</p>
           <p className={styles.statusLine}>{error || profileSyncError || guestError}</p>
         </div>}
-        <section className={`${styles.sidebarCard} ${styles.projectsPanel}`} aria-label="Projects">
+        <nav className={styles.folderTree} aria-label="Chats and project folders">
           <div className={styles.historyHeader}>
             <p className={styles.mutedLabel}>Projects</p>
-            <button type="button" className={styles.profileButton} disabled={!projectReady || projectBusy || isLoading} onClick={() => void createProject()}>New project</button>
+            <button type="button" className={styles.folderAction} title="New project folder" aria-label="New project folder"
+              disabled={!projectReady || projectBusy || isLoading || isReadingFiles} onClick={() => void createProject()}>
+              {folderIcon}<span aria-hidden="true">+</span>
+            </button>
           </div>
-          <select className={styles.settingsInput} aria-label="Project workspace" value={selectedProjectId ?? ""} disabled={isLoading || isReadingFiles || projectBusy} onChange={event => openProject(event.target.value || null)}>
-            <option value="">Personal chats</option>
-            {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-          </select>
-          {activeProject && <>
-            <p className={styles.settingsNote}>Files here are available to every chat in this project. Chat messages stay separate.</p>
-            <div className={styles.actionRow}>
-              <button type="button" className={styles.profileButton} disabled={projectBusy} onClick={() => void renameProject()}>Rename</button>
-              <button type="button" className={styles.profileButton} disabled={projectBusy || isReadingFiles || isLoading} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
-            </div>
-            <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
-              void attachFiles(Array.from(event.target.files ?? []), activeProject.id);
-              event.target.value = "";
-            }} />
-            <ul className={styles.projectFiles}>
-              {activeProject.files.map(file => <li key={file.id}><span>{file.name}</span><button type="button" className={styles.deleteButton} disabled={projectBusy || isReadingFiles || isLoading} aria-label={`Remove shared file ${file.name}`} onClick={() => void removeProjectFile(file.id)}>×</button></li>)}
-            </ul>
-            {!activeProject.files.length && <p className={styles.settingsNote}>No shared files yet.</p>}
-          </>}
-          {activeSession && projectReady && <label className={styles.settingsNote}>
-            Move current chat to
-            <select className={styles.settingsInput} aria-label="Move current chat to project" value={activeSession.project_id ?? ""} disabled={isLoading || isReadingFiles || projectBusy} onChange={event => {
-              const projectId = event.target.value || null;
-              setSessions(current => current.map(session => session.id === activeSession.id ? { ...session, project_id: projectId } : session));
-              setSelectedProjectId(projectId);
-              setLastRequest(null);
-            }}>
-              <option value="">Personal chats</option>
-              {projects.map(project => <option key={project.id} value={project.id}>{project.name}</option>)}
-            </select>
-          </label>}
+          {projects.map(project => {
+            const expanded = expandedFolders.includes(project.id);
+            return <div key={project.id}>
+              <button type="button" className={`${styles.folderRow} ${selectedProjectId === project.id ? styles.activeHistoryItem : ""} ${dropFolder === project.id ? styles.folderDrop : ""}`}
+                aria-expanded={expanded} disabled={navigationBusy} title={project.name}
+                onClick={() => {
+                  setExpandedFolders(current => expanded ? current.filter(id => id !== project.id) : [...current, project.id]);
+                  if (!expanded) openProject(project.id);
+                }} {...folderDropHandlers(project.id)}>
+                {folderIcon}<span>{project.name}</span><small aria-hidden="true">{expanded ? "⌄" : "›"}</small>
+              </button>
+              {expanded && <div className={styles.folderContents}>
+                {sessions.filter(session => session.project_id === project.id).map(renderChat)}
+                {!sessions.some(session => session.project_id === project.id) && <p className={styles.settingsNote}>Drop a chat here</p>}
+                {activeProject?.id === project.id && <details className={styles.folderTools}>
+                  <summary>Project files &amp; options</summary>
+                  <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => void renameProject()}>Rename folder</button>
+                  <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
+                  <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
+                    void attachFiles(Array.from(event.target.files ?? []), project.id);
+                    event.target.value = "";
+                  }} />
+                  <ul className={styles.projectFiles}>
+                    {project.files.map(file => <li key={file.id}><span>{file.name}</span><button type="button" className={styles.deleteButton} disabled={navigationBusy} aria-label={`Remove shared file ${file.name}`} onClick={() => void removeProjectFile(file.id)}>×</button></li>)}
+                  </ul>
+                </details>}
+              </div>}
+            </div>;
+          })}
           {projectError && <p role="alert" className={styles.authError}>{projectError}</p>}
-        </section>
-        <div className={styles.historyPanel}>
-          <div className={styles.historyHeader}>
-            <p className={styles.mutedLabel}>{activeProject ? activeProject.name : "Chat history"}</p>
-            <span>{visibleSessions.length}</span>
-          </div>
-          <div className={styles.historyList}>
-            {visibleSessions.map((session) => (
-              <div key={session.id} className={`${styles.historyItem} ${session.id === activeSession?.id ? styles.activeHistoryItem : ""}`}>
-                <button type="button" className={styles.historySelect} onClick={() => {
-                  setActiveChatId(session.id);
-                  setError(null);
-                  setInput("");
-                }}>
-                  {session.title}
-                </button>
-                <button type="button" className={styles.renameButton} onClick={() => renameChat(session)} aria-label={`Rename ${session.title}`}>
-                  Edit
-                </button>
-                <button type="button" className={styles.deleteButton} onClick={() => deleteChat(session)} aria-label={`Delete ${session.title}`}>
-                  Delete
-                </button>
-              </div>
-            ))}
-          </div>
-        </div>
+          <button type="button" className={`${styles.folderRow} ${styles.personalChats} ${dropFolder === "personal" ? styles.folderDrop : ""}`}
+            disabled={navigationBusy} onClick={() => openProject(null)} {...folderDropHandlers(null)}>Chats</button>
+          {sessions.filter(session => !session.project_id).map(renderChat)}
+        </nav>
       </aside>
+
+      {chatMenu && <div className={styles.chatMenuBackdrop} onClick={() => setChatMenu(null)} onKeyDown={event => {
+        if (event.key === "Escape") { event.preventDefault(); setChatMenu(null); }
+      }}>
+        <div ref={chatMenuRef} className={styles.chatMenu} style={{ ...chatMenuPosition, maxHeight: `calc(100dvh - ${chatMenuPosition.top + 12}px)` }} role="dialog" aria-label="Chat actions" onClick={event => event.stopPropagation()}>
+          <div className={styles.historyHeader}><strong>Move chat to</strong><button type="button" className={styles.folderAction} aria-label="Close chat actions" onClick={() => setChatMenu(null)}>×</button></div>
+          {[{ id: null, name: "Chats" }, ...projects].map(project => <button key={project.id ?? "personal"} type="button" className={styles.folderRow}
+            disabled={navigationBusy || !projectReady || (sessions.find(s => s.id === chatMenu)?.project_id ?? null) === project.id}
+            onClick={() => moveChat(chatMenu, project.id)}>{folderIcon}<span>{project.name}</span></button>)}
+          <hr />
+          <button type="button" className={styles.folderRow} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) renameChat(session); }}>Rename chat</button>
+          <button type="button" className={styles.folderRow} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) deleteChat(session); }}>Delete chat</button>
+        </div>
+      </div>}
 
       {showSettings && (
         <div className={styles.settingsBackdrop} onMouseDown={() => setShowSettings(false)}>
