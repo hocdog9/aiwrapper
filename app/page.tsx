@@ -78,6 +78,7 @@ type UsageSummary = {
   includedCredits: number;
   creditsUsed: number;
   creditsRemaining: number;
+  topupAvailable?: boolean;
 };
 
 type ProviderSettings = {
@@ -323,10 +324,10 @@ function ConsensusDetails({
         className={styles.regenerateButton}
         onClick={onRetry}
         disabled={disabled}
-        aria-label={`Rerun with selected models — ${result.retryable ? "0 requests" : "1 request"}`}
-        title={`Rerun with selected models — ${result.retryable ? "0 requests" : "1 request"}`}
+        aria-label="Rerun with selected models"
+        title="Rerun with selected models"
       >
-        <span aria-hidden="true">↻</span> Rerun with selected models · {result.retryable ? "0 requests" : "1 request"}
+        <span aria-hidden="true">↻</span> Rerun with selected models
       </button>
     </div>
   );
@@ -717,6 +718,7 @@ export default function Home() {
       setUsageSummary((current) => current && payload.usage
         ? { ...current, creditsRemaining: payload.usage.creditsRemaining, creditsUsed: current.includedCredits - payload.usage.creditsRemaining }
         : current);
+      void refreshUsageSummary();
       setStatusText(payload.responses.length === 1 ? `Answer ready from ${payload.responses[0].provider}.` : payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
       setSessions((current) => current.map((session) => {
         if (session.id !== sessionId) return session;
@@ -967,7 +969,7 @@ export default function Home() {
     setProfileNameError("");
   }
 
-  async function startCheckout() {
+  async function startCheckout(purchase: "premium" | "topup" = "premium") {
     if (isGuest) { setShowAccountForm(true); setAuthMode("signup"); setShowSettings(true); return; }
     if (billingBusy) return;
     setBillingBusy(true);
@@ -975,7 +977,7 @@ export default function Home() {
     try {
       const response = await authenticatedFetch("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify({ planId: "premium" }),
+        body: JSON.stringify(purchase === "topup" ? { purchase } : { planId: "premium" }),
       });
       const payload = await response.json() as { url?: string; error?: string };
       if (!response.ok || !payload.url) throw new Error(payload.error ?? "Checkout is unavailable.");
@@ -1264,17 +1266,21 @@ export default function Home() {
             <div className={styles.settingsContent}>
           {usageSummary && userId && (
             <section className={styles.usageCard} aria-label="Your plan">
-              <div><strong>{usageSummary.plan === "free" ? "Free" : "Premium"}</strong><span>{usageSummary.creditsRemaining} of {usageSummary.includedCredits} requests remaining</span></div>
-              <p>Allowance resets {new Date(usageSummary.periodEnd).toLocaleDateString()}</p>
-              {usageSummary.plan === "free" && <p>Need more? Premium includes 500 requests per month.</p>}
+              <div><strong>{usageSummary.plan === "free" ? "Free" : "Premium"}</strong></div>
+
+
               {usageSummary.plan !== "free" && !["active", "trialing"].includes(usageSummary.subscriptionStatus) && <p>Update your payment details to resume chatting.</p>}
               <div className={styles.billingActions}>
-                {usageSummary.plan === "free" && <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={startCheckout}>{billingBusy ? "Opening…" : "Upgrade to Premium"}</button>}
+                {usageSummary.topupAvailable && <div>
+                  <p>You’ve reached your monthly limit. Add extra usage for a one-time CA$4.20, or wait until {new Date(usageSummary.periodEnd).toLocaleDateString()}.</p>
+                  <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={() => void startCheckout("topup")}>{billingBusy ? "Opening…" : "Add usage · CA$4.20"}</button>
+                  <p className={styles.settingsNote}>Valid until your monthly allowance resets. Your subscription stays the same.</p>
+                </div>}
                 {usageSummary.hasBillingAccount && <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={openBillingPortal}>{billingBusy ? "Opening…" : "Manage subscription"}</button>}
               </div>
             </section>
           )}
-          <p className={styles.settingsNote}>{userEmail ? "Your preferences and chats sync across browsers." : "10 free requests per month. No signup or credit card required."}</p>
+          <p className={styles.settingsNote}>{userEmail ? "Your preferences and chats sync across browsers." : "Start chatting for free. No signup needed."}</p>
           {profileSyncError && <p className={styles.authError}>{profileSyncError}</p>}
           {userEmail ? (
             <div className={styles.accountRow}>
@@ -1299,7 +1305,7 @@ export default function Home() {
           )}
           {userId && <section className={styles.settingsContent} aria-labelledby="model-choices-title">
             <h3 id="model-choices-title">Models</h3>
-          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. Changes apply to your next send and do not use a request. To repeat a question, choose “Rerun with selected models” below its answer. Incomplete-response retries are free; rerunning a successful answer uses one request.</p>
+          <p className={styles.settingsNote}>Choose one provider for a normal chat, or several to compare answers. Changes apply to your next message. To repeat a question, choose “Rerun with selected models” below its answer.</p>
           {(["GPT", "Gemini", "Claude"] as ProviderName[]).map((provider) => {
             const modelIds = modelCatalog[provider];
             return (
@@ -1396,7 +1402,7 @@ export default function Home() {
             <div className={styles.emptyState}>
               <h2>One question. Multiple perspectives.</h2>
               <p>Compare AI answers in one place.</p>
-              {isGuest && <><p className={styles.welcomeNote}>10 free requests a month · No signup needed</p><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowAccountForm(true); setShowSettings(true); }}>Sign in</button></>}
+              {isGuest && <><p className={styles.welcomeNote}>Start free · No signup needed</p><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowAccountForm(true); setShowSettings(true); }}>Sign in</button></>}
               {guestError && <p className={styles.authError} role="alert">{guestError}</p>}
             </div>
           )}
@@ -1419,7 +1425,7 @@ export default function Home() {
                 {messageDisplay(message).text && <div className={styles.messageContent}><FormattedMarkdown>{messageDisplay(message).text}</FormattedMarkdown></div>}
                 {message.role === "assistant" && message.result?.errors.some(item => item.provider !== "Comparison") ? (
                   <div className={styles.partialProviderWarning} role="status">
-                    {message.result.usage?.creditCharged === 0 ? "Incomplete response — no request charged." : "Incomplete response."} {message.result.errors.filter(item => item.provider !== "Comparison").map((item) => `${item.provider}: ${item.message}`).join(" ")}
+                    Incomplete response. {message.result.errors.filter(item => item.provider !== "Comparison").map((item) => `${item.provider}: ${item.message}`).join(" ")}
                     <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>Change models</button>
                   </div>
                 ) : null}
@@ -1454,7 +1460,8 @@ export default function Home() {
           {error && (
             <div className={styles.errorCard}>
               <span className={styles.errorMessage}>{error}</span>
-              {userId && <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>View plan and settings</button>}
+              {usageSummary?.topupAvailable ? <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={() => setShowSettings(true)}>Add usage · CA$4.20</button> :
+                userId && <button type="button" className={styles.profileButton} onClick={() => setShowSettings(true)}>View plan and settings</button>}
               {lastRequest && (
                 <button type="button" className={styles.retryButton} onClick={retryLastRequest} disabled={isLoading}>
                   Try again

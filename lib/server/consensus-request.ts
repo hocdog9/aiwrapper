@@ -50,7 +50,7 @@ function mapDatabaseError(error: { message?: string; code?: string }): { message
   if (message.includes("INVALID_RETRY")) return { message: "This free retry does not match an incomplete request. Send a new question instead.", status: 409 };
   if (message.includes("RETRY_ALREADY_USED")) return { message: "This response has already been retried. Please use the latest attempt.", status: 409 };
   if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Consensus.", status: 401 };
-  if (message.includes("NO_CREDITS")) return { message: "You have used this period's Consensus allowance. Upgrade to Premium in Settings or wait for your allowance to reset.", status: 402 };
+  if (message.includes("NO_CREDITS")) return { message: "You’ve reached your monthly limit. Add extra usage in Settings or wait for your allowance to reset.", status: 402 };
   if (message.includes("PLAN_LIMIT")) return { message: "This subscription is not active. Update your billing details to continue.", status: 402 };
   if (message.includes("RATE_LIMITED")) return { message: "Request limit reached. Wait a minute and try again.", status: 429 };
   if (message.includes("CONCURRENCY_LIMIT")) return { message: "You already have the maximum number of Consensus requests processing. Wait for one to finish.", status: 429 };

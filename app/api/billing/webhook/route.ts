@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { paidTopup } from "@/lib/billing-topup";
 import { createAdminClient } from "@/lib/server/auth";
 
 export const runtime = "nodejs";
@@ -77,12 +78,17 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    if (verifiedEvent.type === "checkout.session.completed") {
+    if (["checkout.session.completed", "checkout.session.async_payment_succeeded"].includes(verifiedEvent.type)) {
       const session = verifiedEvent.data.object as Stripe.Checkout.Session;
       const userId = session.metadata?.userId ?? session.client_reference_id;
       const planId = session.metadata?.planId;
       const customerId = typeof session.customer === "string" ? session.customer : session.customer?.id;
       const subscriptionId = typeof session.subscription === "string" ? session.subscription : session.subscription?.id ?? null;
+      const topup = paidTopup(session);
+      if (topup) {
+        const { error } = await admin.rpc("apply_billing_topup", topup);
+        if (error) throw new Error("Could not apply top-up.");
+      }
       if (session.mode === "subscription" && userId && planId && customerId) {
         let subscription: Stripe.Subscription | null = null;
         if (subscriptionId) subscription = await new Stripe(secretKey).subscriptions.retrieve(subscriptionId);
