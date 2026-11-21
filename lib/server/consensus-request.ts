@@ -1,3 +1,4 @@
+import { reviewConflicts } from "./conflict-review";
 import "server-only";
 
 import { readSynthesis, consolidationPrompt, finalResponseErrors } from "./synthesis";
@@ -306,6 +307,33 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
           await recordUsage({ context, requestId, conversationId, billingMode, provider: candidate.provider, model: candidate.model, callKind: "synthesis", status: "failed", latencyMs: Date.now() - startedAt });
         }
       }
+    }
+    if (consensus.comparison) {
+      consensus.comparison = await reviewConflicts(consensus.comparison, conversation, providerResponses, async (prompt) => {
+        const reviewer = successful[1] ?? successful[0];
+        const startedAt = Date.now();
+        try {
+          const review = await invokeProvider({ provider: reviewer.provider, model: reviewer.model,
+            apiKey: (await resolveProviderCredential(context, reviewer.provider, billingMode)).apiKey,
+            prompt, maxOutputTokens: 4096 });
+          await recordUsage({ context, requestId, conversationId, billingMode, provider: reviewer.provider,
+            model: reviewer.model, callKind: "synthesis", status: "success", usage: review.usage,
+            latencyMs: review.latencyMs, providerRequestId: review.providerRequestId });
+          return review.text;
+        } catch (error) {
+          logProviderError(error, { provider: reviewer.provider, model: reviewer.model, requestId, callKind: "synthesis" });
+          await recordUsage({ context, requestId, conversationId, billingMode, provider: reviewer.provider,
+            model: reviewer.model, callKind: "synthesis", status: "failed", latencyMs: Date.now() - startedAt });
+          throw error;
+        }
+      });
+      if (consensus.comparison.kind === "open_ended") consensus.summary = consensus.comparison.issues?.length
+        ? "Comparison partially available" : consensus.comparison.conflicts.length ? "Models disagree on specific points" : "No explicit conflicts found";
+      if (consensus.comparison.kind === "multi_question") {
+        consensus.consensus = (consensus.comparison.questions ?? []).map((q, index) =>
+          `${index + 1}. ${q.answer.replace(/\n/g, "\n   ")}\n\n   *${q.summary}*`).join("\n\n");
+      }
+      if (consensus.comparison.issues?.length && !synthesisErrors.length) synthesisErrors.push({ provider: "Comparison", message: "Conflict check incomplete." });
     }
     const comparisonComplete = Boolean(consensus.comparison) && !consensus.comparison?.issues?.length;
     const unresolvedComparison = synthesisErrors.length ? [{

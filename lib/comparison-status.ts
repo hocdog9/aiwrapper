@@ -1,3 +1,4 @@
+import { isValidatedConflict } from "./conflict-validation";
 import type { AnswerComparison } from "./answer-comparison";
 
 type ResultStatus = {
@@ -11,9 +12,9 @@ type ResultStatus = {
 function conflictStatus(comparison?: AnswerComparison): string {
   if (!comparison) return "Comparison unavailable";
   const children = comparison.kind === "multi_question" ? comparison.questions?.map(q => q.comparison) ?? [] : [];
-  const incomplete = Boolean(comparison.issues?.length) || children.some(c => conflictStatus(c).includes("incomplete")) ||
+  const incomplete = Boolean(comparison.issues?.length) || comparison.conflicts.some(c => !isValidatedConflict(c)) || children.some(c => conflictStatus(c).includes("incomplete")) ||
     (comparison.kind === "multi_question" && !children.length);
-  const conflicts = comparison.conflicts.length > 0 || children.some(c => c.conflicts.length > 0);
+  const conflicts = comparison.conflicts.some(isValidatedConflict) || children.some(c => c.conflicts.some(isValidatedConflict));
   if (incomplete) return conflicts ? "Explicit conflicts found · Conflict check incomplete" : "Conflict check incomplete";
   return conflicts ? "Explicit conflicts found" : "No explicit conflicts found";
 }

@@ -8,6 +8,7 @@ import { FILE_ACCEPT, classifyFile, attachmentPrompt, validateAttachments, type 
 import type { PdfReference } from "@/lib/pdf-context";
 import { messageDisplay } from "@/lib/message-display";
 import { comparisonStatus } from "@/lib/comparison-status";
+import { isValidatedConflict, conflictDifference } from "@/lib/conflict-validation";
 import type { AnswerComparison } from "@/lib/answer-comparison";
 import { prepareProjectMessages, type Project, type ProjectFile } from "@/lib/project-context";
 import { supabase } from "@/lib/supabase";
@@ -228,6 +229,9 @@ function hydrateSessionResults(session: ChatSession): ChatSession {
 }
 
 function ComparisonBreakdown({ comparison }: { comparison: AnswerComparison }) {
+  const conflicts = comparison.conflicts.filter(isValidatedConflict);
+  const unverified = comparison.conflicts.filter(c => !isValidatedConflict(c));
+  const differences = [...comparison.reasoningDifferences, ...unverified.map(conflictDifference)];
   if (comparison.kind === "multi_question") {
     return <div className={styles.questionBreakdowns}>
       {comparison.questions?.map((question, index) => (
@@ -258,18 +262,18 @@ function ComparisonBreakdown({ comparison }: { comparison: AnswerComparison }) {
               </div>
               <div className={styles.metaCard}>
                 <h4>Conflicting claims</h4>
-                {comparison.conflicts.length ? comparison.conflicts.map((conflict, index) => <div key={index}>
-                  <FormattedMarkdown>{conflict.point}</FormattedMarkdown>
+                {conflicts.length ? conflicts.map((conflict, index) => <div key={index}>
+                  <FormattedMarkdown>{conflict.validation!.contradiction}</FormattedMarkdown>
                   {conflict.positions.map((position, i) => <div key={i}>
                     <FormattedMarkdown>{position.claim}</FormattedMarkdown>
                     {position.evidence.map(e => <blockquote key={e.provider}><strong>{e.provider}:</strong> {e.quote}</blockquote>)}
                   </div>)}
-                </div>) : <p>{comparison.issues?.length ? "The conflict check is incomplete. Do not interpret this as agreement." : "No explicit conflicts identified in the responding models’ answers."}</p>}
+                </div>) : <p>{(comparison.issues?.length || unverified.length) ? "The conflict check is incomplete. Do not interpret this as agreement." : "No explicit conflicts identified in the responding models’ answers."}</p>}
               </div>
             </div>
-            {comparison.reasoningDifferences.length > 0 && <div className={styles.metaCard}>
+            {differences.length > 0 && <div className={styles.metaCard}>
               <h4>Different explanations, not disagreements</h4>
-              <ul>{comparison.reasoningDifferences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
+              <ul>{differences.map((item, index) => <li key={index}><FormattedMarkdown>{item}</FormattedMarkdown></li>)}</ul>
             </div>}
   </>;
 }
@@ -1169,7 +1173,6 @@ export default function Home() {
           <div className={styles.settingsPanel} role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className={styles.settingsHeader}>
               <div>
-                <p className={styles.mutedLabel}>Settings</p>
                 <h2 id="settings-title">{userId ? "Settings" : "Welcome to Consensus"}</h2>
               </div>
               <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">

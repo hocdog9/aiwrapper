@@ -6,7 +6,7 @@ export type AnswerComparison = {
   questions?: Array<{ question: string; answer: string; summary: string; comparison: AnswerComparison }>;
   votes: Array<{ provider: string; choice: string | null; quote: string }>;
   sharedReasoning: Array<{ point: string; evidence: Evidence[] }>;
-  conflicts: Array<{ point: string; positions: Array<{ claim: string; evidence: Evidence[] }> }>;
+  conflicts: Array<{ validation?: { version: 1; property: string; conditions: string; contradiction: string }; point: string; positions: Array<{ claim: string; evidence: Evidence[] }> }>;
   reasoningDifferences: string[];
 };
 
@@ -21,6 +21,7 @@ Rules:
 - Multiple choice: record exactly one vote per responding provider. Use a canonical option label (A, B, etc., or the supplied numeric label). When options are unlabelled, assign A, B, C in the order presented in the question; use the same mapping for every vote. Only count an unambiguous final selection, including an answer that clearly matches option text. If ambiguous, conditional, missing, or multiple selections, use null and an empty quote. Do not infer votes from merely mentioning an option. Use open_ended when there is no choice question and return votes: [] in that case.
 - Shared reasoning needs supporting exact excerpts from at least two providers.
 - A conflict requires at least two explicitly incompatible claims under the SAME assumptions, time and scope, with exact excerpts and attribution on both sides. Missing details, different wording, uncertainty, and complementary explanations are NOT conflicts. An unmentioned claim is not a rejection.
+- Before proposing a conflict, identify the same property and conditions and explain in one sentence why the two claims cannot both be true. If you cannot, put the attributed observation in reasoningDifferences. Frothier and airier are compatible; denser without a specified property or baseline is ambiguous, not their opposite.
 - Separate answer choice agreement from reasoning agreement. Models can choose the same option but disagree on reasoning.
 - Preserve disputed positions in the consolidated answer; do not silently choose a winner. If all choices agree, lead the answer with that option.
 - Limit to 3 shared points, 3 conflicts and 3 reasoning differences. Keep quotes short and verbatim INCLUDING Markdown formatting from the source. Empty arrays are valid. Never invent evidence.
