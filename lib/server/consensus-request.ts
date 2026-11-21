@@ -158,7 +158,7 @@ async function recordUsage(input: {
   if (error) throw new Error("Usage ledger could not record this provider call.");
 }
 
-export async function processConsensusRequest(request: NextRequest): Promise<NextResponse> {
+export async function processConsensusRequest(request: NextRequest, onPhase?: (phase: "providers" | "synthesis") => void): Promise<NextResponse> {
   const context = await authenticateRequest(request);
   if (!context) return safeErrorResponse("Sign in to use Consensus.", 401);
   if (!context.adminClient) return safeErrorResponse("Server setup is incomplete: configure SUPABASE_SERVICE_ROLE_KEY before serving model requests.", 503);
@@ -206,6 +206,8 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     const prompt = buildPrompt(cleaned.messages);
     const latestImages = userMessages[userMessages.length - 1]?.images ?? [];
     const errors: SafeProviderError[] = [];
+    request.signal.throwIfAborted();
+    onPhase?.("providers");
     const outcomes = await Promise.all(selectedProviders.map(async (provider) => {
       const model = typeof requestSettings[provider]?.model === "string" && requestSettings[provider]!.model!.length <= 160
         ? requestSettings[provider]!.model!
@@ -242,6 +244,8 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
       }, { status: 502 });
     }
 
+    request.signal.throwIfAborted();
+    if (successful.length > 1) onPhase?.("synthesis");
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
     consensus.attemptedProviderCount = selectedProviders.length;
     const synthesisErrors: SafeProviderError[] = [];
@@ -344,6 +348,7 @@ export async function processConsensusRequest(request: NextRequest): Promise<Nex
     }] : [];
     consensus.errors = finalResponseErrors(errors, unresolvedComparison, comparisonComplete);
 
+    request.signal.throwIfAborted();
     const { data: completed, error: completeError } = await context.adminClient.rpc("finish_chat_request", {
       p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: consensus.errors.length > 0,
     });

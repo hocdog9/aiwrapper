@@ -1,6 +1,7 @@
 "use client";
 
-import { FormEvent, useEffect, useRef, useState } from "react";
+import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
+import { generationDots, generationLabel, readGenerationResponse, type GenerationPhase } from "@/lib/generation-progress";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -351,6 +352,10 @@ export default function Home() {
   const [sessions, setSessions] = useState<ChatSession[]>([]);
   const [activeChatId, setActiveChatIdState] = useState("");
   const [isLoading, setIsLoading] = useState(false);
+  const [generationPhase, setGenerationPhase] = useState<GenerationPhase>("providers");
+  const [generationModelCount, setGenerationModelCount] = useState(1);
+  const generationController = useRef<AbortController | null>(null);
+  useEffect(() => () => generationController.current?.abort(), []);
   const [, setStatusText] = useState("Ready to compare model responses.");
   const [error, setError] = useState<string | null>(null);
   const [isDark, setIsDark] = useState(true);
@@ -695,19 +700,28 @@ export default function Home() {
   }
 
   async function runRequest(requestMessages: ChatTurn[], sessionId: string, requestId: string, requestSettings: AppSettings = settings, retryOf?: string) {
+    const controller = new AbortController();
+    generationController.current = controller;
+    setGenerationPhase("providers");
+    setGenerationModelCount((["GPT", "Gemini", "Claude"] as ProviderName[]).filter(p => requestSettings[p].enabled).length);
     try {
       const response = await authenticatedFetch("/api/chat", {
+        signal: controller.signal,
+        headers: { Accept: "application/x-ndjson" },
         method: "POST",
         body: JSON.stringify({ messages: prepareProjectMessages(requestMessages, projects.find(project => project.id === sessions.find(session => session.id === sessionId)?.project_id)?.files ?? []), settings: requestSettings, requestId, conversationId: sessionId, retryOf }),
       });
 
-      const payload = (await response.json()) as ResponsePayload & { error?: string };
+      const { payload, ok } = await readGenerationResponse<ResponsePayload & { error?: string }>(response, phase => {
+        if (!controller.signal.aborted && generationController.current === controller) setGenerationPhase(phase);
+      });
+      if (controller.signal.aborted || generationController.current !== controller) return;
       setLastRequest((current) => current?.requestId === requestId
-        ? (!response.ok && !payload.requestId && retryOf
+        ? (!ok && !payload.requestId && retryOf
           ? { ...current, requestId: retryOf, retryable: true }
           : { ...current, retryable: payload.retryable === true }) : current);
 
-      if (!response.ok) {
+      if (!ok) {
         await refreshUsageSummary();
         const providerErrors = payload.errors?.length
           ? `\n${payload.errors.map((item) => `${item.provider}: ${item.message}`).join("\n")}`
@@ -731,10 +745,11 @@ export default function Home() {
         return { ...session, chat: [...requestMessages, assistantMessage], result: payload };
       }));
     } catch (submitError) {
+      if (controller.signal.aborted || generationController.current !== controller) return;
       setError(submitError instanceof Error ? submitError.message : "Something went wrong.");
       setStatusText("The request failed. Please try again.");
     } finally {
-      setIsLoading(false);
+      if (generationController.current === controller) { generationController.current = null; setIsLoading(false); }
     }
   }
 
@@ -1456,12 +1471,10 @@ export default function Home() {
               <div className={styles.loadingBubble} role="status" aria-live="polite" aria-atomic="true">
                 <div className={styles.loader}>
                   <span className={styles.loadingGraphic} aria-hidden="true">
-                    <span className={styles.orbitScene}>
-                      <span className={styles.orbitRing} />
-                      <span className={styles.orbitRing} />
-                    </span>
+                    {generationDots(generationModelCount).map((dot, index) => <span key={index} className={styles.convergingDot}
+                      style={{ "--dot-x": `${dot.x}px`, "--dot-y": `${dot.y}px` } as CSSProperties} />)}
                   </span>
-                  <span>Asking {getEnabledProviderLabel(settings)}…</span>
+                  <span>{generationLabel(generationPhase)}</span>
                 </div>
               </div>
             </div>
@@ -1594,9 +1607,11 @@ export default function Home() {
               ))}
             </fieldset>
           </details>
-          <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || isReadingFiles || (!input.trim() && !pastedImages.length && !attachedDocuments.length)}>
-            {!authChecked ? "Getting ready…" : isLoading ? "Thinking…" : "Send"}
-          </button>
+          {isLoading ? <button type="button" className={styles.submitButton} onClick={() => {
+            generationController.current?.abort(); generationController.current = null; setIsLoading(false); setError(null);
+          }}>Stop</button> : <button type="submit" className={styles.submitButton} disabled={!authChecked || !userId || isLoading || isReadingFiles || (!input.trim() && !pastedImages.length && !attachedDocuments.length)}>
+            {!authChecked ? "Getting ready…" : "Send"}
+          </button>}
           </div>
         </form>
       </section>

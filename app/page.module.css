@@ -1236,44 +1236,28 @@
 .loadingGraphic {
   position: relative;
   display: block;
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   flex-shrink: 0;
-  perspective: 140px;
 }
-
-.orbitScene {
+.convergingDot {
   position: absolute;
-  inset: 6px;
-  transform-style: preserve-3d;
-}
-
-.orbitRing {
-  --tilt: 45deg;
-  --angle: 0deg;
-  position: absolute;
-  inset: 0;
-  border: 1px solid white;
+  top: 21px;
+  left: 21px;
+  width: 6px;
+  height: 6px;
   border-radius: 50%;
-  transform: rotateZ(var(--angle)) rotateX(var(--tilt));
-  animation: orbitRotation 3.5s linear infinite;
+  background: #a5b4fc;
+  box-shadow: 0 0 7px #a5b4fc66;
+  transform: translate(var(--dot-x), var(--dot-y));
+  animation: convergeDots 2.2s ease-in-out infinite;
 }
-
-.orbitRing:nth-child(2) {
-  --tilt: 55deg;
-  --angle: 90deg;
-  inset: 4px;
-  animation-duration: 4.5s;
-  animation-direction: reverse;
+@keyframes convergeDots {
+  0%, 100% { transform: translate(var(--dot-x), var(--dot-y)); opacity: .65; }
+  42%, 58% { transform: translate(0, 0); opacity: 1; }
 }
-
-@keyframes orbitRotation {
-  from { transform: rotateZ(var(--angle)) rotateX(var(--tilt)); }
-  to { transform: rotateZ(calc(var(--angle) + 360deg)) rotateX(var(--tilt)); }
-}
-
 @media (prefers-reduced-motion: reduce) {
-  .orbitRing { animation: none; }
+  .convergingDot { animation: none; opacity: .85; }
 }
 
 .questionBreakdowns {
