@@ -48,3 +48,18 @@ test("JSON responses from older deployments still work", async () => {
   const result = await readGenerationResponse(Response.json({ error: "Limit reached" }, { status: 402 }), () => assert.fail("No phase"));
   assert.equal(result.ok, false);
 });
+
+test("empty and non-JSON server responses produce actionable errors, not JSON exceptions", async () => {
+  await assert.rejects(readGenerationResponse(new Response(null), () => {}), /empty response/);
+  await assert.rejects(readGenerationResponse(new Response(null, { status: 504 }), () => {}), /too long/);
+  await assert.rejects(readGenerationResponse(new Response("<html>Bad Gateway</html>", { status: 502 }), () => {}), /unreadable response/);
+});
+test("truncated JSON stream reports interruption", async () => {
+  const response = new Response('{"type":"result","payload":', { headers: { "content-type": "application/x-ndjson" } });
+  await assert.rejects(readGenerationResponse(response, () => {}), /interrupted/);
+});
+test("malformed result envelopes cannot masquerade as successful answers", async () => {
+  for (const event of [{ type: "result", status: 200 }, { type: "result", payload: {} }]) {
+    await assert.rejects(readGenerationResponse(stream([event]), () => {}), /incomplete answer/);
+  }
+});

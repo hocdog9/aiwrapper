@@ -7,7 +7,19 @@ export function generationDots(count: number) {
   });
 }
 export async function readGenerationResponse<T>(response: Response, onPhase: (phase: GenerationPhase) => void): Promise<{ payload: T; ok: boolean }> {
-  if (!response.headers.get("content-type")?.includes("application/x-ndjson")) return { payload: await response.json(), ok: response.ok };
+  if (!response.headers.get("content-type")?.includes("application/x-ndjson")) {
+    const text = await response.text();
+    if (!text.trim()) throw new Error(response.status === 504
+      ? "The server took too long to respond. Please try again."
+      : "The server returned an empty response. Please try again.");
+    try {
+      const payload = JSON.parse(text);
+      if (!payload || typeof payload !== "object" || Array.isArray(payload)) throw new Error("Invalid payload");
+      return { payload, ok: response.ok };
+    } catch {
+      throw new Error("The server returned an unreadable response. Please try again.");
+    }
+  }
   if (!response.body) throw new Error("The response stream is unavailable.");
   const reader = response.body.getReader();
   const decoder = new TextDecoder();
@@ -15,9 +27,17 @@ export async function readGenerationResponse<T>(response: Response, onPhase: (ph
   let result: { payload: T; ok: boolean } | undefined;
   function consume(line: string) {
     if (!line.trim()) return;
-    const event = JSON.parse(line);
+    let event;
+    try { event = JSON.parse(line); }
+    catch { throw new Error("The response was interrupted before it could finish. Please try again."); }
+    if (!event || typeof event !== "object") throw new Error("The server returned an unreadable response. Please try again.");
     if (event.type === "phase" && (event.phase === "providers" || event.phase === "synthesis")) onPhase(event.phase);
-    if (event.type === "result") result = { payload: event.payload, ok: event.status >= 200 && event.status < 300 };
+    if (event.type === "result") {
+      if (!Number.isInteger(event.status) || event.status < 200 || event.status > 599 || !event.payload || typeof event.payload !== "object" || Array.isArray(event.payload)) {
+        throw new Error("The server returned an incomplete answer. Please try again.");
+      }
+      result = { payload: event.payload, ok: event.status >= 200 && event.status < 300 };
+    }
   }
   try {
     while (true) {
