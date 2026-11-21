@@ -1206,14 +1206,18 @@ export default function Home() {
                   <path d="m16 3 5 5L8 21H3v-5ZM14 5l5 5" />
                 </svg>
               </button>
+              <button type="button" className={`${styles.folderAction} ${styles.dangerAction}`} disabled={navigationBusy} title="Delete project" aria-label={`Delete project ${project.name}`} onClick={() => void deleteProject(project)}>
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
+                </svg>
+              </button>
               </div>
               {expanded && <div className={styles.folderContents}>
                 {sessions.filter(session => session.project_id === project.id).map(renderChat)}
                 {!sessions.some(session => session.project_id === project.id) && <p className={styles.settingsNote}>Drop a chat here</p>}
                 {activeProject?.id === project.id && <details className={styles.folderTools}>
-                  <summary>Project files &amp; options</summary>
+                  <summary>Project files</summary>
                   <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
-                  <button type="button" className={`${styles.folderRow} ${styles.dangerAction}`} disabled={navigationBusy} onClick={() => void deleteProject(project)}>Delete project</button>
                   <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
                     void attachFiles(Array.from(event.target.files ?? []), project.id);
                     event.target.value = "";
