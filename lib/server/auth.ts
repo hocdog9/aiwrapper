@@ -1,7 +1,12 @@
 import "server-only";
+import WebSocket from "ws";
 
 import { createClient, type SupabaseClient, type User } from "@supabase/supabase-js";
 import type { NextRequest } from "next/server";
+
+// ws implements the runtime WebSocket contract; its Node event typings differ from DOM events.
+type ServerTransport = NonNullable<NonNullable<Parameters<typeof createClient>[2]>["realtime"]>["transport"];
+const serverTransport = WebSocket as unknown as ServerTransport;
 
 export type AuthenticatedContext = {
   user: User;
@@ -14,6 +19,7 @@ export function createAdminClient(): SupabaseClient | null {
   const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!url || !serviceRoleKey) return null;
   return createClient(url, serviceRoleKey, {
+    realtime: { transport: serverTransport },
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
   });
 }
@@ -26,6 +32,7 @@ export async function authenticateRequest(request: NextRequest): Promise<Authent
   if (!token || !url || !publishableKey) return null;
 
   const userClient = createClient(url, publishableKey, {
+    realtime: { transport: serverTransport },
     auth: { autoRefreshToken: false, persistSession: false, detectSessionInUrl: false },
     global: { headers: { Authorization: `Bearer ${token}` } },
   });

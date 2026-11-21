@@ -3,7 +3,7 @@ import "server-only";
 
 import { readSynthesis, consolidationPrompt, finalResponseErrors } from "./synthesis";
 import { requestFingerprint } from "./request-fingerprint";
-import { logProviderError } from "./provider-diagnostics";
+import { logProviderError, providerErrorDetails } from "./provider-diagnostics";
 
 import { NextRequest, NextResponse } from "next/server";
 import { recentChatContext, MAX_CONTEXT_MESSAGES, MAX_MESSAGE_CHARACTERS } from "@/lib/chat-context";
@@ -158,8 +158,14 @@ async function recordUsage(input: {
   if (error) throw new Error("Usage ledger could not record this provider call.");
 }
 
-export async function processConsensusRequest(request: NextRequest, onPhase?: (phase: "providers" | "synthesis") => void): Promise<NextResponse> {
-  const context = await authenticateRequest(request);
+export async function processConsensusRequest(request: NextRequest, onPhase?: (phase: "providers" | "synthesis") => void, signal: AbortSignal = request.signal): Promise<NextResponse> {
+  let context;
+  try {
+    context = await authenticateRequest(request);
+  } catch (error) {
+    console.error("generation_auth_failed", providerErrorDetails(error));
+    return safeErrorResponse("Could not connect to your account. Please try again shortly.", 503);
+  }
   if (!context) return safeErrorResponse("Sign in to use Consensus.", 401);
   if (!context.adminClient) return safeErrorResponse("Server setup is incomplete: configure SUPABASE_SERVICE_ROLE_KEY before serving model requests.", 503);
   const contentLength = Number(request.headers.get("content-length") ?? 0);
@@ -206,7 +212,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
     const prompt = buildPrompt(cleaned.messages);
     const latestImages = userMessages[userMessages.length - 1]?.images ?? [];
     const errors: SafeProviderError[] = [];
-    request.signal.throwIfAborted();
+    signal.throwIfAborted();
     onPhase?.("providers");
     const outcomes = await Promise.all(selectedProviders.map(async (provider) => {
       const model = typeof requestSettings[provider]?.model === "string" && requestSettings[provider]!.model!.length <= 160
@@ -244,7 +250,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
       }, { status: 502 });
     }
 
-    request.signal.throwIfAborted();
+    signal.throwIfAborted();
     if (successful.length > 1) onPhase?.("synthesis");
     const consensus = makeResponse(providerResponses, errors, requestId, billingMode, Math.max(0, Number(reservation?.creditsRemaining ?? 0)));
     consensus.attemptedProviderCount = selectedProviders.length;
@@ -348,7 +354,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
     }] : [];
     consensus.errors = finalResponseErrors(errors, unresolvedComparison, comparisonComplete);
 
-    request.signal.throwIfAborted();
+    signal.throwIfAborted();
     const { data: completed, error: completeError } = await context.adminClient.rpc("finish_chat_request", {
       p_user_id: context.user.id, p_request_id: requestId, p_response: consensus, p_had_errors: consensus.errors.length > 0,
     });

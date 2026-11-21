@@ -1,3 +1,4 @@
+import { providerErrorDetails } from "./provider-diagnostics";
 import type { GenerationPhase } from "../generation-progress";
 
 /** Keep the HTTP stream alive while auth, providers and synthesis are pending. */
@@ -21,15 +22,18 @@ export function generationStream(
       send({ type: "connected" });
       heartbeat = setInterval(() => send({ type: "heartbeat" }), 10000);
       void (async () => {
+        let stage = "processing_request";
         try {
           const response = await process(signal, phase => send({ type: "phase", phase }));
+          stage = "reading_result";
           const text = await response.text();
           if (!text.trim()) throw new Error("Empty generation result");
+          stage = "decoding_result";
           const payload = JSON.parse(text);
           send({ type: "result", status: response.status, payload });
         } catch (error) {
           if (!signal.aborted) {
-            console.error("generation_stream_failed", { name: error instanceof Error ? error.name : "UnknownError" });
+            console.error("generation_stream_failed", { stage, name: error instanceof Error ? error.name : "UnknownError", ...providerErrorDetails(error) });
             send({ type: "result", status: 500, payload: { error: "Generation could not finish. Please try again." } });
           }
         } finally {
