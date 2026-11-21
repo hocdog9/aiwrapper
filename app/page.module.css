@@ -1495,3 +1495,8 @@
 
 .folderHeading { display: flex; align-items: center; gap: 2px; }
 .folderHeading > .folderRow { flex: 1; min-width: 0; }
+
+.dangerAction, .deleteButton { color: #b91c1c; }
+.dangerAction:hover, .deleteButton:hover { color: #991b1b; }
+.dark .dangerAction, .dark .deleteButton { color: #f87171; }
+.dark .dangerAction:hover, .dark .deleteButton:hover { color: #fca5a5; }

@@ -896,6 +896,30 @@ export default function Home() {
     setProjects(current => current.map(p => p.id === project.id ? { ...p, name } : p));
   }
 
+  async function deleteProject(project: Project) {
+    if (projectBusy || isLoading || isReadingFiles || !userId || !projectReady) return;
+    if (!window.confirm(`Delete project "${project.name}"? Its chats will move to Chats. Shared project files will be removed.`)) return;
+    setProjectBusy(true);
+    setProjectError("");
+    try {
+      // The foreign key moves all project chats to the root atomically, including chats on other devices.
+      const { data, error } = await supabase.from("projects").delete().eq("id", project.id).eq("user_id", userId).select("id");
+      if (error) throw error;
+      if (!data?.length) throw new Error("Project was not deleted. Refresh and try again.");
+      setProjects(current => current.filter(p => p.id !== project.id));
+      setSessions(current => current.map(session => session.project_id === project.id ? { ...session, project_id: null } : session));
+      setExpandedFolders(current => current.filter(id => id !== project.id));
+      if (selectedProjectId === project.id) {
+        setSelectedProjectId(null);
+        setLastRequest(null);
+      }
+    } catch (error) {
+      setProjectError(error instanceof Error ? error.message : "Could not delete project. Please try again.");
+    } finally {
+      setProjectBusy(false);
+    }
+  }
+
   async function saveProjectFiles(projectId: string, files: ProjectFile[]) {
     const { error } = await supabase.from("projects").update({ files, updated_at: new Date().toISOString() }).eq("id", projectId).eq("user_id", userId);
     if (error) throw new Error(`Project files could not be saved: ${error.message}`);
@@ -1189,6 +1213,7 @@ export default function Home() {
                 {activeProject?.id === project.id && <details className={styles.folderTools}>
                   <summary>Project files &amp; options</summary>
                   <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
+                  <button type="button" className={`${styles.folderRow} ${styles.dangerAction}`} disabled={navigationBusy} onClick={() => void deleteProject(project)}>Delete project</button>
                   <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
                     void attachFiles(Array.from(event.target.files ?? []), project.id);
                     event.target.value = "";
@@ -1217,7 +1242,7 @@ export default function Home() {
             onClick={() => moveChat(chatMenu, project.id)}>{folderIcon}<span>{project.name}</span></button>)}
           <hr />
           <button type="button" className={styles.folderRow} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) renameChat(session); }}>Rename chat</button>
-          <button type="button" className={styles.folderRow} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) deleteChat(session); }}>Delete chat</button>
+          <button type="button" className={`${styles.folderRow} ${styles.dangerAction}`} onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) deleteChat(session); }}>Delete chat</button>
         </div>
       </div>}
 
@@ -1340,7 +1365,7 @@ export default function Home() {
           {profileNameError && <p className={styles.authError}>{profileNameError}</p>}
           <div className={styles.profileActions}>
             <button type="button" className={styles.profileButton} onClick={saveNewProfile}>Save as new</button>
-            <button type="button" className={styles.profileButton} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
+            <button type="button" className={`${styles.profileButton} ${styles.dangerAction}`} onClick={deleteProfile} disabled={profiles.length <= 1}>Delete profile</button>
           </div>
           <label className={styles.providerCheck}>
             <input
