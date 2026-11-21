@@ -1365,9 +1365,9 @@ export default function Home() {
         <div className={styles.chatViewport} ref={viewportRef}>
           {chat.length === 0 && !result && (
             <div className={styles.emptyState}>
-              <h2>Ask once. Compare answers.</h2>
-              <p>Get answers from multiple AI models and see where they agree.</p>
-              {isGuest && <><p>10 free requests per month. No signup or credit card required.</p><p>Type your question below to get started.</p><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowAccountForm(true); setShowSettings(true); }}>Already have an account? Sign in</button></>}
+              <h2>One question. Multiple perspectives.</h2>
+              <p>Compare AI answers in one place.</p>
+              {isGuest && <><p className={styles.welcomeNote}>10 free requests a month · No signup needed</p><button type="button" className={styles.authSwitch} onClick={() => { setAuthMode("login"); setShowAccountForm(true); setShowSettings(true); }}>Sign in</button></>}
               {guestError && <p className={styles.authError} role="alert">{guestError}</p>}
             </div>
           )}
