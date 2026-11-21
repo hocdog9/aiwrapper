@@ -8,7 +8,7 @@
     "start": "next start",
     "lint": "eslint",
     "check": "tsc --noEmit",
-    "test": "node --conditions=react-server --import tsx --test lib/consensus.test.js lib/server/*.test.ts",
+    "test": "node --conditions=react-server --import tsx --test lib/consensus.test.js lib/server/*.test.ts && node --import tsx --test lib/markdown-format.test.ts",
     "predev": "node scripts/prepare-pdf-assets.mjs",
     "prebuild": "node scripts/prepare-pdf-assets.mjs"
   },

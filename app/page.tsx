@@ -2,6 +2,7 @@
 
 import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 import { generationDots, generationLabel, readGenerationResponse, type GenerationPhase } from "@/lib/generation-progress";
+import { normalizeMarkdown } from "@/lib/markdown-format";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -126,9 +127,7 @@ async function authenticatedFetch(path: string, init: RequestInit = {}): Promise
 }
 
 function FormattedMarkdown({ children }: { children: string }) {
-  const normalized = children
-    .replace(/\\\[([\s\S]*?)\\\]/g, "$$$$$1$$$$")
-    .replace(/\\\(([\s\S]*?)\\\)/g, "$$$1$$");
+  const normalized = normalizeMarkdown(children);
 
   return (
     <ReactMarkdown remarkPlugins={[remarkMath]} rehypePlugins={[rehypeKatex]}>
