@@ -1,3 +1,4 @@
+import { defaultModelChoices } from "@/lib/model-defaults";
 import { NextRequest, NextResponse } from "next/server";
 import { authenticateRequest } from "@/lib/server/auth";
 import { getBillingMode } from "@/lib/server/credentials";
@@ -9,7 +10,8 @@ export async function POST(request: NextRequest) {
   try {
     const mode = await getBillingMode(context);
     const models = await getModelAllowlist(context, mode);
-    return NextResponse.json({ models, loaded: { GPT: true, Gemini: true, Claude: true }, errors: {} });
+    const { data: billing } = await context.userClient.from("user_billing").select("plan_id").eq("user_id", context.user.id).maybeSingle();
+    return NextResponse.json({ defaults: defaultModelChoices(models ?? {}), useEconomyDefaults: billing?.plan_id === "free", models, loaded: { GPT: true, Gemini: true, Claude: true }, errors: {} });
   } catch {
     return NextResponse.json({ error: "Models are temporarily unavailable. Please try again shortly." }, { status: 503 });
   }

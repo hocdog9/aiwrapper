@@ -8,6 +8,7 @@ function sanitizeProfileSettings(value: unknown) {
   const settings = value && typeof value === "object" ? value as Record<string, unknown> : {};
   const safe: Record<string, unknown> = {
     consensusDropdownDefaultOpen: settings.consensusDropdownDefaultOpen === true,
+    economyDefaultsApplied: settings.economyDefaultsApplied === true,
   };
   for (const provider of PROVIDERS) {
     const rawProviderSettings = settings[provider];

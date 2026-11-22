@@ -3,6 +3,7 @@
 import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "react";
 import { generationDots, generationLabel, readGenerationResponse, type GenerationPhase } from "@/lib/generation-progress";
 import { normalizeMarkdown } from "@/lib/markdown-format";
+import { ECONOMY_MODELS } from "@/lib/model-defaults";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -90,6 +91,7 @@ type ProviderSettings = {
 
 type AppSettings = Record<ProviderName, ProviderSettings> & {
   consensusDropdownDefaultOpen: boolean;
+  economyDefaultsApplied?: boolean;
 };
 
 type SettingsProfile = {
@@ -137,16 +139,17 @@ function FormattedMarkdown({ children }: { children: string }) {
 }
 
 const defaultSettings: AppSettings = {
-  GPT: { enabled: true, model: "gpt-4o-mini" },
-  Gemini: { enabled: true, model: "gemini-3.8-flash" },
-  Claude: { enabled: false, model: "claude-3-5-sonnet-20241022" },
+  GPT: { enabled: true, model: ECONOMY_MODELS.GPT },
+  Gemini: { enabled: true, model: ECONOMY_MODELS.Gemini },
+  Claude: { enabled: false, model: ECONOMY_MODELS.Claude },
   consensusDropdownDefaultOpen: false,
+  economyDefaultsApplied: true,
 };
 
 const fallbackModels: ModelCatalog = {
-  GPT: ["gpt-4o-mini"],
-  Gemini: ["gemini-3.8-flash"],
-  Claude: ["claude-3-5-sonnet-20241022"],
+  GPT: [ECONOMY_MODELS.GPT],
+  Gemini: [ECONOMY_MODELS.Gemini],
+  Claude: [ECONOMY_MODELS.Claude],
 };
 
 function createChatSession(): ChatSession {
@@ -178,6 +181,7 @@ function normalizeSettings(settings: Partial<AppSettings>): AppSettings {
       model: stored.Claude?.model || defaultSettings.Claude.model,
     },
     consensusDropdownDefaultOpen: settings.consensusDropdownDefaultOpen === true,
+    economyDefaultsApplied: settings.economyDefaultsApplied === true,
   };
 }
 
@@ -626,6 +630,8 @@ export default function Home() {
         });
         const payload = await response.json() as {
           models?: ModelCatalog;
+          defaults?: Record<ProviderName, string>;
+          useEconomyDefaults?: boolean;
           loaded?: Record<ProviderName, boolean>;
           errors?: Partial<Record<ProviderName, string>>;
         };
@@ -638,11 +644,12 @@ export default function Home() {
             Claude: payload.models?.Claude.length ? payload.models.Claude : current.Claude,
           }));
           setSettings((current) => {
-            const nextSettings = { ...current };
+            const applyEconomy = payload.useEconomyDefaults && !current.economyDefaultsApplied;
+            const nextSettings = { ...current, economyDefaultsApplied: true };
             for (const provider of ["GPT", "Gemini", "Claude"] as ProviderName[]) {
               const available = payload.models?.[provider] ?? [];
-              if (!payload.loaded?.[provider] || !available.length || available.includes(current[provider].model)) continue;
-              const preferred = available.find((model) => /flash|mini|haiku/i.test(model)) ?? available[0];
+              if (!payload.loaded?.[provider] || !available.length || (!applyEconomy && available.includes(current[provider].model))) continue;
+              const preferred = payload.defaults?.[provider] ?? available[0];
               nextSettings[provider] = { ...current[provider], model: preferred };
             }
             return nextSettings;

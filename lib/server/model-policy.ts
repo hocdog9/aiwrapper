@@ -1,4 +1,5 @@
 import "server-only";
+import { ECONOMY_MODELS } from "../model-defaults";
 
 import type { AuthenticatedContext } from "./auth";
 import type { BillingMode } from "./credentials";
@@ -7,15 +8,15 @@ import type { ProviderName } from "./model-pricing";
 export type ProviderModelAllowlist = Partial<Record<ProviderName, string[]>>;
 
 export const DEFAULT_MODELS: Record<ProviderName, string> = {
-  GPT: process.env.OPENAI_MODEL || "gpt-4o-mini",
-  Gemini: process.env.GEMINI_MODEL || "gemini-3.8-flash",
-  Claude: process.env.ANTHROPIC_MODEL || "claude-3-5-sonnet-20241022",
+  GPT: process.env.OPENAI_MODEL || ECONOMY_MODELS.GPT,
+  Gemini: process.env.GEMINI_MODEL || ECONOMY_MODELS.Gemini,
+  Claude: process.env.ANTHROPIC_MODEL || ECONOMY_MODELS.Claude,
 };
 
 const ALTERNATIVES: Record<ProviderName, string[]> = {
   GPT: ["gpt-4.1-mini"],
-  Gemini: ["gemini-3.7-flash", "gemini-3.5-flash-lite"],
-  Claude: ["claude-haiku-4-5"],
+  Gemini: ["gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.5-flash-lite"],
+  Claude: ["claude-haiku-4-5", "claude-3-5-sonnet-20241022"],
 };
 const MODEL_LIST_ENV: Record<ProviderName, string> = {
   GPT: "OPENAI_ALLOWED_MODELS", Gemini: "GEMINI_ALLOWED_MODELS", Claude: "ANTHROPIC_ALLOWED_MODELS",

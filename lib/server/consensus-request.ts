@@ -1,5 +1,6 @@
 import { reviewConflicts } from "./conflict-review";
 import "server-only";
+import { defaultModelChoices } from "../model-defaults";
 
 import { readSynthesis, consolidationPrompt, finalResponseErrors } from "./synthesis";
 import { requestFingerprint } from "./request-fingerprint";
@@ -13,7 +14,7 @@ import { authenticateRequest } from "./auth";
 import { getBillingMode, resolveProviderCredential, type BillingMode } from "./credentials";
 import { estimateProviderCostMicros, type ProviderName, type TokenUsage } from "./model-pricing";
 import { invokeProvider, safeProviderError, type ImageAttachment } from "./providers";
-import { DEFAULT_MODELS, getModelAllowlist } from "./model-policy";
+import { getModelAllowlist } from "./model-policy";
 
 type ChatMessage = { role: string; content: string; images?: ImageAttachment[] };
 type ProviderChoice = { enabled?: boolean; model?: string };
@@ -189,10 +190,11 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
 
     const billingMode = await getBillingMode(context);
     const modelAllowlist = await getModelAllowlist(context, billingMode);
+    const defaults = defaultModelChoices(modelAllowlist ?? {});
     for (const provider of selectedProviders) {
       const selectedModel = typeof requestSettings[provider]?.model === "string"
         ? requestSettings[provider]!.model!
-        : DEFAULT_MODELS[provider];
+        : defaults[provider];
       if (modelAllowlist && !modelAllowlist[provider]?.includes(selectedModel)) {
         return safeErrorResponse(`${selectedModel} is not included in your plan. Choose a model available in Settings.`, 403);
       }
@@ -217,7 +219,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
     const outcomes = await Promise.all(selectedProviders.map(async (provider) => {
       const model = typeof requestSettings[provider]?.model === "string" && requestSettings[provider]!.model!.length <= 160
         ? requestSettings[provider]!.model!
-        : DEFAULT_MODELS[provider];
+        : defaults[provider];
       const startedAt = Date.now();
       try {
         const credential = await resolveProviderCredential(context, provider, billingMode);
