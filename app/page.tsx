@@ -888,7 +888,8 @@ export default function Home() {
     setError(null);
   }
 
-  async function createProject() {
+  async function createProject(chatToMove?: string) {
+    if (projectBusy || isLoading || isReadingFiles) return;
     const name = window.prompt("Project name")?.trim().slice(0, 100);
     if (!name || !userId || !projectReady) return;
     setProjectBusy(true);
@@ -899,7 +900,16 @@ export default function Home() {
     setProjects(current => [...current, project]);
     setProjectError("");
     setExpandedFolders(current => [...current, project.id]);
-    openProject(project.id);
+    if (chatToMove) {
+      setSessions(current => current.map(session => session.id === chatToMove ? { ...session, project_id: project.id } : session));
+      if (chatToMove === activeChatId) {
+        setSelectedProjectId(project.id);
+        setLastRequest(null);
+      }
+      setChatMenu(null);
+    } else {
+      openProject(project.id);
+    }
   }
 
   async function renameProject(project: Project) {
@@ -1260,7 +1270,10 @@ export default function Home() {
           {[{ id: null, name: "Chats" }, ...projects].map(project => <button key={project.id ?? "personal"} type="button" className={styles.folderRow}
             disabled={navigationBusy || !projectReady || (sessions.find(s => s.id === chatMenu)?.project_id ?? null) === project.id}
             onClick={() => moveChat(chatMenu, project.id)}>{folderIcon}<span>{project.name}</span></button>)}
-          <hr />
+          <button type="button" className={styles.folderRow} disabled={navigationBusy || !projectReady} onClick={() => void createProject(chatMenu)}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14" /></svg>
+            <span>New project…</span>
+          </button>
           <div className={styles.actionRow}>
       <button type="button" className={styles.folderAction} disabled={navigationBusy} title="Rename chat" aria-label="Rename chat" onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) renameChat(session); }}>
         <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
