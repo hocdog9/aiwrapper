@@ -128,6 +128,14 @@ async function authenticatedFetch(path: string, init: RequestInit = {}): Promise
   return fetch(path, { ...init, headers });
 }
 
+function UploadIcon() {
+  return (
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+              <path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
+            </svg>
+  );
+}
+
 function FormattedMarkdown({ children }: { children: string }) {
   const normalized = normalizeMarkdown(children);
 
@@ -1250,7 +1258,7 @@ export default function Home() {
                 {!sessions.some(session => session.project_id === project.id) && <p className={styles.settingsNote}>Drop a chat here</p>}
                 {activeProject?.id === project.id && <details className={styles.folderTools}>
                   <summary>Project files</summary>
-                  <button type="button" className={styles.folderRow} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()}>Upload shared files</button>
+                  <button type="button" className={`${styles.profileButton} ${styles.projectUploadButton}`} disabled={navigationBusy} onClick={() => projectFileInputRef.current?.click()} aria-label="Upload shared files" title="Upload shared files"><UploadIcon /></button>
                   <input hidden ref={projectFileInputRef} type="file" accept={FILE_ACCEPT} multiple onChange={event => {
                     void attachFiles(Array.from(event.target.files ?? []), project.id);
                     event.target.value = "";
@@ -1590,9 +1598,7 @@ export default function Home() {
           <div className={styles.composerActions}>
           <button type="button" className={styles.profileButton} disabled={isLoading || isReadingFiles}
             onClick={() => fileInputRef.current?.click()} aria-label="Upload files" title="Upload files">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-              <path d="M12 16V3m-5 5 5-5 5 5M4 16v4a1 1 0 0 0 1 1h14a1 1 0 0 0 1-1v-4" />
-            </svg>
+            <UploadIcon />
           </button>
           <details className={styles.modelPicker} onKeyDown={event => {
             if (event.key === "Escape") {

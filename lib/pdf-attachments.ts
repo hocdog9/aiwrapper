@@ -17,7 +17,7 @@ export async function renderPdf(file: File, availablePages: number, isCancelled:
   const timeout = window.setTimeout(() => { timedOut = true; void task.destroy(); }, 120000);
   try {
     const pdf = await task.promise;
-    if (pdf.numPages > MAX_PDF_PAGES) throw new Error("PDFs can contain up to 250 pages. Split this document into smaller volumes.");
+    if (pdf.numPages > MAX_PDF_PAGES) throw new Error(`PDFs can contain up to ${MAX_PDF_PAGES} pages. Split this document into smaller volumes.`);
     if (pdf.numPages > availablePages) {
       const pages: PdfReference["pages"] = [];
       let characters = 0;

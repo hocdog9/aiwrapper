@@ -1487,3 +1487,5 @@
 
 .modelPickerRow { display: grid; grid-template-columns: 88px minmax(0, 1fr); align-items: center; gap: 12px; }
 .modelPickerRow .settingsInput { min-width: 0; width: 100%; margin: 0; }
+
+.projectUploadButton { margin-top: 8px; display: inline-flex; align-items: center; justify-content: center; }
