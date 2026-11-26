@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Consensus AI",
+  title: "Merune",
   description: "Three-model consensus assistant with transparent agreement and disagreement",
 };
 

@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
       customer: customerId,
       ...(isTopup ? { payment_method_types: ["card" as const] } : {}),
       line_items: isTopup ? [{ price_data: { currency: TOPUP_CURRENCY, unit_amount: TOPUP_AMOUNT,
-        product_data: { name: "Consensus usage top-up", description: "One-time extra usage. Expires at the end of your current billing period." } }, quantity: 1 }] : [{ price: priceId!, quantity: 1 }],
+        product_data: { name: "Merune usage top-up", description: "One-time extra usage. Expires at the end of your current billing period." } }, quantity: 1 }] : [{ price: priceId!, quantity: 1 }],
       client_reference_id: context.user.id,
       metadata: isTopup ? { userId: context.user.id, purchase: "topup", credits: String(credits) } : { userId: context.user.id, planId },
       ...(!isTopup ? { subscription_data: { metadata: { userId: context.user.id, planId } } } : {}),

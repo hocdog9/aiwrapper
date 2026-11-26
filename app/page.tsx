@@ -755,7 +755,7 @@ export default function Home() {
         ? { ...current, creditsRemaining: payload.usage.creditsRemaining, creditsUsed: current.includedCredits - payload.usage.creditsRemaining }
         : current);
       void refreshUsageSummary();
-      setStatusText(payload.responses.length === 1 ? `Answer ready from ${payload.responses[0].provider}.` : payload.errors?.length ? "Consensus ready with provider errors." : "Consensus ready.");
+      setStatusText(payload.responses.length === 1 ? `Answer ready from ${payload.responses[0].provider}.` : payload.errors?.length ? "Merune ready with provider errors." : "Merune ready.");
       setSessions((current) => current.map((session) => {
         if (session.id !== sessionId) return session;
         const assistantMessage: ChatTurn = {
@@ -1202,10 +1202,8 @@ export default function Home() {
       <aside className={styles.sidebar}>
         <div className={styles.sidebarTop}>
           <div className={styles.brandWrap}>
-            <div className={styles.logoBadge}>C</div>
             <div>
-              <p className={styles.brandEyebrow}>Consensus</p>
-              <h1>AI</h1>
+              <h1>Merune</h1>
             </div>
           </div>
           <div className={styles.actionRow}>
@@ -1313,7 +1311,7 @@ export default function Home() {
           <div className={styles.settingsPanel} role="dialog" aria-modal="true" aria-labelledby="settings-title" onMouseDown={(event) => event.stopPropagation()}>
             <div className={styles.settingsHeader}>
               <div>
-                <h2 id="settings-title">{userId ? "Settings" : "Welcome to Consensus"}</h2>
+                <h2 id="settings-title">{userId ? "Settings" : "Welcome to Merune"}</h2>
               </div>
               <button type="button" className={styles.settingsCloseButton} onClick={() => setShowSettings(false)} aria-label="Close settings">
                 ×
@@ -1466,7 +1464,7 @@ export default function Home() {
           {chat.map((message, index) => (
             <div key={`${message.role}-${index}`} className={`${styles.messageRow} ${message.role === "user" ? styles.userRow : styles.assistantRow}`}>
               <div className={styles.messageBubble}>
-                <span className={styles.messageRole}>{message.role === "user" ? "You" : "Consensus"}</span>
+                <span className={styles.messageRole}>{message.role === "user" ? "You" : "Merune"}</span>
                 {(message.images ?? (message.image ? [message.image] : [])).map((image, imageIndex) => (
                   <img key={`${image.dataUrl}-${imageIndex}`} className={styles.messageImage} src={image.dataUrl} alt={`Pasted prompt image ${imageIndex + 1}`} />
                 ))}

@@ -10,7 +10,7 @@ test("real chat route streams authentication errors without request cloning", as
   });
   const result = await readGenerationResponse<{ error: string }>(await POST(request), () => {});
   assert.equal(result.ok, false);
-  assert.equal(result.payload.error, "Sign in to use Consensus.");
+  assert.equal(result.payload.error, "Sign in to use Merune.");
 });
 test("real authenticated streaming route reads the original POST body", async () => {
   const names = ["NEXT_PUBLIC_SUPABASE_URL", "NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY", "SUPABASE_SERVICE_ROLE_KEY"];

@@ -12,7 +12,7 @@ try {
   for await (const candidate of stripe.products.list({ active: true, limit: 100 })) {
     if (candidate.metadata.app === 'consensus' && candidate.metadata.planId === 'premium') { product = candidate; break; }
   }
-  product ??= await stripe.products.create({ name: 'Consensus Premium', description: '500 AI chat requests per month.', metadata: { app: 'consensus', planId: 'premium' } }, { idempotencyKey: 'consensus-premium-product-v1' });
+  product ??= await stripe.products.create({ name: 'Merune Premium', description: '500 AI chat requests per month.', metadata: { app: 'consensus', planId: 'premium' } }, { idempotencyKey: 'consensus-premium-product-v1' });
   let price;
   for await (const candidate of stripe.prices.list({ product: product.id, active: true, limit: 100 })) {
     if (candidate.currency === 'cad' && candidate.unit_amount === 999 && candidate.recurring?.interval === 'month' && candidate.recurring.interval_count === 1) { price = candidate; break; }

@@ -1,10 +1,10 @@
-# Stripe Billing integration: Consensus
+# Stripe Billing integration: Merune
 
 Status: preliminary review based on the installed Stripe best-practices skill and official documentation. This is **not** output from `stripe_implementation_planner`: the newly installed plugin's MCP tools are not exposed in the current session. Run that tool once connected before finalizing this plan.
 
 ## Product
 
-Consensus compares AI-provider responses. Free includes 10 requests; Premium includes 500 per month. Guests can use Free, but purchasing Premium requires a permanent Supabase account. Price and currency are pending the owner's decision. Use a Stripe sandbox for initial setup and validation.
+Merune compares AI-provider responses. Free includes 10 requests; Premium includes 500 per month. Guests can use Free, but purchasing Premium requires a permanent Supabase account. Price and currency are pending the owner's decision. Use a Stripe sandbox for initial setup and validation.
 
 Use Stripe Billing with hosted Checkout Sessions in subscription mode, one monthly recurring Premium Price, and Customer Portal for payment details and cancellation. Keep the internal request ledger in Supabase; this is a fixed monthly allowance, not Stripe metered usage. Refunds of internal request credits are unrelated to refunds of Stripe payments.
 
@@ -32,7 +32,7 @@ Improvements to implement and verify before live payments:
 - Confirm the installed SDK/API version against current Stripe releases before changing dependencies or webhook API versions.
 - Read `BILLING_SECRET_KEY` only from `.env.local` or deployment secrets; never print it or pass it in shell arguments.
 - Inspect sandbox products and prices before creating duplicates.
-- Create/reuse Consensus Premium and its monthly Price after price and currency are specified.
+- Create/reuse Merune Premium and its monthly Price after price and currency are specified.
 - Save `BILLING_PREMIUM_PRICE_ID`, `BILLING_WEBHOOK_SECRET`, and `APP_URL` securely.
 - Configure the customer portal and a snapshot webhook at `/api/billing/webhook`.
 - Include checkout completion, subscription lifecycle events, `invoice.paid`, and `invoice.payment_failed` after their handlers are implemented.

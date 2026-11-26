@@ -50,11 +50,11 @@ function mapDatabaseError(error: { message?: string; code?: string }): { message
   const message = error.message ?? "";
   if (message.includes("INVALID_RETRY")) return { message: "This free retry does not match an incomplete request. Send a new question instead.", status: 409 };
   if (message.includes("RETRY_ALREADY_USED")) return { message: "This response has already been retried. Please use the latest attempt.", status: 409 };
-  if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Consensus.", status: 401 };
+  if (message.includes("AUTH_REQUIRED") || error.code === "28000") return { message: "Sign in to use Merune.", status: 401 };
   if (message.includes("NO_CREDITS")) return { message: "You’ve reached your monthly limit. Add extra usage in Settings or wait for your allowance to reset.", status: 402 };
   if (message.includes("PLAN_LIMIT")) return { message: "This subscription is not active. Update your billing details to continue.", status: 402 };
   if (message.includes("RATE_LIMITED")) return { message: "Request limit reached. Wait a minute and try again.", status: 429 };
-  if (message.includes("CONCURRENCY_LIMIT")) return { message: "You already have the maximum number of Consensus requests processing. Wait for one to finish.", status: 429 };
+  if (message.includes("CONCURRENCY_LIMIT")) return { message: "You already have the maximum number of Merune requests processing. Wait for one to finish.", status: 429 };
   if (message.includes("REQUEST_IN_PROGRESS")) return { message: "This request is already processing. Wait for it to finish.", status: 409 };
   if (message.includes("REQUEST_ALREADY_PROCESSED")) return { message: "This request was already processed. Start a new request to try again.", status: 409 };
   return { message: "Billing is unavailable. Confirm that the latest Supabase migration was applied.", status: 503 };
@@ -167,7 +167,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
     console.error("generation_auth_failed", providerErrorDetails(error));
     return safeErrorResponse("Could not connect to your account. Please try again shortly.", 503);
   }
-  if (!context) return safeErrorResponse("Sign in to use Consensus.", 401);
+  if (!context) return safeErrorResponse("Sign in to use Merune.", 401);
   if (!context.adminClient) return safeErrorResponse("Server setup is incomplete: configure SUPABASE_SERVICE_ROLE_KEY before serving model requests.", 503);
   const contentLength = Number(request.headers.get("content-length") ?? 0);
   if (contentLength > 4_500_000) return safeErrorResponse("The request is too large. Reduce prompt or image size.", 413);
@@ -373,7 +373,7 @@ export async function processConsensusRequest(request: NextRequest, onPhase?: (p
       ? error.message
       : error instanceof Error && error.message === "Usage ledger could not record this provider call."
         ? error.message
-        : "Consensus request failed safely. Try again, or check billing and provider settings.";
+        : "Merune request failed safely. Try again, or check billing and provider settings.";
     return NextResponse.json({ error: message, requestId: reservedRequestId, retryable }, { status: 500 });
   }
 }

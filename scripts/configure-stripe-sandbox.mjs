@@ -21,7 +21,7 @@ try {
   const configurations = await stripe.billingPortal.configurations.list({ is_default: true, limit: 1 });
   const portalSettings = {
     default_return_url: appUrl,
-    business_profile: { headline: 'Manage your Consensus subscription' },
+    business_profile: { headline: 'Manage your Merune subscription' },
     features: {
       payment_method_update: { enabled: true },
       invoice_history: { enabled: true },
@@ -42,7 +42,7 @@ try {
   if (endpoint) {
     endpoint = await stripe.webhookEndpoints.update(endpoint.id, { enabled_events: events, disabled: false });
   } else {
-    endpoint = await stripe.webhookEndpoints.create({ url, enabled_events: events, api_version: Stripe.API_VERSION, description: 'Consensus sandbox subscription updates' }, { idempotencyKey: 'consensus-sandbox-webhook-aiwrapper-five-v1' });
+    endpoint = await stripe.webhookEndpoints.create({ url, enabled_events: events, api_version: Stripe.API_VERSION, description: 'Merune sandbox subscription updates' }, { idempotencyKey: 'consensus-sandbox-webhook-aiwrapper-five-v1' });
     if (endpoint.secret) { save('BILLING_WEBHOOK_SECRET', endpoint.secret); secretSaved = true; }
   }
   const verifiedPortal = await stripe.billingPortal.configurations.retrieve(portal.id);
