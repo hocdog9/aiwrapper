@@ -4,6 +4,7 @@ import { type CSSProperties, FormEvent, useEffect, useRef, useState } from "reac
 import { generationDots, generationLabel, readGenerationResponse, type GenerationPhase } from "@/lib/generation-progress";
 import { normalizeMarkdown } from "@/lib/markdown-format";
 import { ECONOMY_MODELS } from "@/lib/model-defaults";
+import { PREMIUM_PRICES, type BillingInterval } from "@/lib/billing-plans";
 import ReactMarkdown from "react-markdown";
 import rehypeKatex from "rehype-katex";
 import remarkMath from "remark-math";
@@ -76,6 +77,8 @@ type ModelCatalog = Record<ProviderName, string[]>;
 type UsageSummary = {
   plan: string;
   subscriptionStatus: string;
+  billingInterval?: BillingInterval;
+  subscriptionPeriodEnd?: string;
   hasBillingAccount: boolean;
   periodEnd: string;
   includedCredits: number;
@@ -1016,7 +1019,7 @@ export default function Home() {
     setProfileNameError("");
   }
 
-  async function startCheckout(purchase: "premium" | "topup" = "premium") {
+  async function startCheckout(purchase: "premium" | "topup" = "premium", interval: BillingInterval = "month") {
     if (isGuest) { setShowAccountForm(true); setAuthMode("signup"); setShowSettings(true); return; }
     if (billingBusy) return;
     setBillingBusy(true);
@@ -1024,7 +1027,7 @@ export default function Home() {
     try {
       const response = await authenticatedFetch("/api/billing/checkout", {
         method: "POST",
-        body: JSON.stringify(purchase === "topup" ? { purchase } : { planId: "premium" }),
+        body: JSON.stringify(purchase === "topup" ? { purchase } : { planId: "premium", interval }),
       });
       const payload = await response.json() as { url?: string; error?: string };
       if (!response.ok || !payload.url) throw new Error(payload.error ?? "Checkout is unavailable.");
@@ -1324,6 +1327,15 @@ export default function Home() {
 
 
               {usageSummary.plan !== "free" && !["active", "trialing"].includes(usageSummary.subscriptionStatus) && <p>Update your payment details to resume chatting.</p>}
+              {usageSummary.plan === "free" && <div className={styles.premiumChoices}>
+                <p>Upgrade to Premium</p>
+                <div className={styles.billingActions}>
+                  <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={() => void startCheckout("premium", "month")}>{PREMIUM_PRICES.month.label}</button>
+                  <button type="button" className={styles.profileButton} disabled={billingBusy} onClick={() => void startCheckout("premium", "year")}>{PREMIUM_PRICES.year.label}</button>
+                </div>
+                <p className={styles.settingsNote}>Annual billing saves CA$13.80 a year. Same monthly allowance on both plans.</p>
+              </div>}
+              {usageSummary.plan === "premium" && usageSummary.billingInterval && <p className={styles.settingsNote}>{usageSummary.billingInterval === "year" ? "Billed annually" : "Billed monthly"}</p>}
               <div className={styles.billingActions}>
                 {usageSummary.topupAvailable && <div>
                   <p>You’ve reached your monthly limit. Add extra usage for a one-time CA$4.20, or wait until {new Date(usageSummary.periodEnd).toLocaleDateString()}.</p>

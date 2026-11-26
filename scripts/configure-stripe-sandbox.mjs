@@ -7,7 +7,7 @@ loadEnvConfig(process.cwd());
 const key = process.env.BILLING_SECRET_KEY;
 if (!key?.startsWith('sk_test_') && !key?.startsWith('rk_test_')) throw new Error('Sandbox key required; no live changes allowed.');
 const stripe = new Stripe(key);
-const appUrl = 'https://aiwrapper-five.vercel.app';
+const appUrl = new URL(process.env.APP_URL || 'https://aiwrapper-five.vercel.app').origin;
 function save(name, value) {
   let contents = readFileSync('.env.local', 'utf8');
   const pattern = new RegExp(`^[ \\t]*${name}[ \\t]*=.*$`, 'm');
@@ -15,8 +15,11 @@ function save(name, value) {
   writeFileSync('.env.local', contents, { mode: 0o600 });
 }
 try {
-  const price = await stripe.prices.retrieve(process.env.BILLING_PREMIUM_PRICE_ID);
-  if (price.livemode || price.currency !== 'cad' || price.unit_amount !== 999 || price.recurring?.interval !== 'month' || price.recurring.interval_count !== 1 || !price.active) throw new Error('Unexpected Premium price configuration.');
+  const price = await stripe.prices.retrieve(process.env.BILLING_PREMIUM_MONTHLY_PRICE_ID);
+  const annual = await stripe.prices.retrieve(process.env.BILLING_PREMIUM_ANNUAL_PRICE_ID);
+  for (const [item, amount, interval] of [[price, 690, 'month'], [annual, 6900, 'year']]) {
+    if (item.livemode || item.currency !== 'cad' || item.unit_amount !== amount || item.recurring?.interval !== interval || item.recurring.interval_count !== 1 || !item.active) throw new Error('Unexpected Premium price configuration.');
+  }
   save('APP_URL', appUrl);
   const configurations = await stripe.billingPortal.configurations.list({ is_default: true, limit: 1 });
   const portalSettings = {
@@ -33,7 +36,7 @@ try {
     ? await stripe.billingPortal.configurations.update(configurations.data[0].id, portalSettings)
     : await stripe.billingPortal.configurations.create(portalSettings);
   const url = `${appUrl}/api/billing/webhook`;
-  const events = ['checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.payment_failed'];
+  const events = ['checkout.session.completed', 'customer.subscription.created', 'customer.subscription.updated', 'customer.subscription.deleted', 'invoice.payment_failed', 'invoice.paid', 'checkout.session.async_payment_succeeded'];
   let endpoint;
   for await (const item of stripe.webhookEndpoints.list({ limit: 100 })) {
     if (item.url === url) { endpoint = item; break; }
@@ -46,7 +49,7 @@ try {
     if (endpoint.secret) { save('BILLING_WEBHOOK_SECRET', endpoint.secret); secretSaved = true; }
   }
   const verifiedPortal = await stripe.billingPortal.configurations.retrieve(portal.id);
-  console.log(JSON.stringify({ mode: 'sandbox', price: 'CA$9.99/month', priceId: price.id, portalId: portal.id, portalIsDefault: verifiedPortal.is_default, paymentUpdates: verifiedPortal.features.payment_method_update.enabled, invoices: verifiedPortal.features.invoice_history.enabled, cancellation: verifiedPortal.features.subscription_cancel.mode, webhookId: endpoint.id, webhookUrl: endpoint.url, webhookStatus: endpoint.status, signingSecretSaved: secretSaved, existingLocalSigningSecret: Boolean(process.env.BILLING_WEBHOOK_SECRET), appUrlSaved: true }));
+  console.log(JSON.stringify({ mode: 'sandbox', monthly: 'CA$6.90/month', annual: 'CA$69/year', monthlyPriceId: price.id, annualPriceId: annual.id, portalId: portal.id, portalIsDefault: verifiedPortal.is_default, paymentUpdates: verifiedPortal.features.payment_method_update.enabled, invoices: verifiedPortal.features.invoice_history.enabled, cancellation: verifiedPortal.features.subscription_cancel.mode, webhookId: endpoint.id, webhookUrl: endpoint.url, webhookStatus: endpoint.status, signingSecretSaved: secretSaved, existingLocalSigningSecret: Boolean(process.env.BILLING_WEBHOOK_SECRET), appUrlSaved: true }));
 } catch (error) {
   console.error(JSON.stringify({ error: 'Sandbox configuration could not complete', type: error.type, code: error.code, status: error.statusCode }));
   process.exitCode = 1;

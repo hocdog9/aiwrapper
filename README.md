@@ -51,7 +51,7 @@ Visitors start chatting without signup using a persistent Supabase anonymous ses
 
 ### Premium subscriptions
 
-Create a recurring Premium price in Stripe. Set `BILLING_PREMIUM_PRICE_ID`, `BILLING_SECRET_KEY`, `BILLING_WEBHOOK_SECRET`, and `APP_URL`. Configure the Stripe customer portal and a webhook to `/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, and `invoice.payment_failed`.
+Create monthly (CA$6.90) and annual (CA$69) recurring Premium prices in Stripe. Set `BILLING_PREMIUM_MONTHLY_PRICE_ID`, `BILLING_PREMIUM_ANNUAL_PRICE_ID`, `BILLING_SECRET_KEY`, `BILLING_WEBHOOK_SECRET`, and `APP_URL`. Configure the Stripe customer portal and a webhook to `/api/billing/webhook` for `checkout.session.completed`, `customer.subscription.created`, `customer.subscription.updated`, `customer.subscription.deleted`, `invoice.payment_failed`, `invoice.paid`, and `checkout.session.async_payment_succeeded`.
 
 Stripe checkout displays the configured price before payment. Webhooks grant Premium access; a checkout redirect alone does not. Paid allowances reset through subscription events, while Free allowances reset on the next request after the period ends. Cancellation returns the account to Free. Premium upgrades are unavailable until Stripe is configured; Free chat works independently.
 
@@ -115,3 +115,14 @@ Usage is still enforced server-side, but counters are hidden in the app. At the 
 Before deploying this feature, run `supabase/billing_topups_migration.sql` after `model_retry_migration.sql` in the Supabase SQL editor. Then deploy the app. Existing Stripe secret/webhook keys and `APP_URL` are reused; no new Stripe Price ID is needed (Checkout uses server-defined CAD price data). Card payments are fulfilled by the signed `checkout.session.completed` webhook; the handler also supports `checkout.session.async_payment_succeeded`. The database deduplicates by Checkout Session ID, so webhook retries cannot grant usage twice. Subscription updates do not overwrite top-ups.
 
 Verify in Stripe sandbox: exhaust a test account, complete the CA$4.20 card checkout, wait for webhook delivery, then send a message. Replay the webhook and verify no second grant. Confirm the grant expires when the billing period ends. SQL execution and end-to-end payment verification require the configured Supabase/Stripe environment.
+
+
+### Monthly and annual Premium billing
+
+Run `supabase/annual_billing_migration.sql` **after** `billing_topups_migration.sql` and before deploying this version. Premium keeps 500 requests per usage month on both plans; annual payment does not grant a full year of usage upfront. Request counts remain hidden. Monthly windows are anchored to the subscription start, with month-end/leap-year handling; reads and requests refresh expired windows without a scheduled job. Top-ups expire at the usage-month boundary. Payment periods are stored separately and inactive or expired paid subscriptions remain blocked.
+
+Configured sandbox prices (verified):
+- `BILLING_PREMIUM_MONTHLY_PRICE_ID=price_1UeEL8GZBGrNJ51pysmDxGoi` — CA$6.90/month.
+- `BILLING_PREMIUM_ANNUAL_PRICE_ID=price_1UeEL8GZBGrNJ51pe8qa8Lga` — CA$69/year.
+
+Copy these configuration variables to Vercel and redeploy after the migration. Live payment collection needs corresponding **live** Price IDs, a live secret key and live webhook signing secret. Existing subscriptions are not automatically repriced. The setup scripts verify and reuse the supplied sandbox prices instead of recreating the retired CA$9.99 price. The Stripe portal continues supporting payment details, invoices and cancellation; switching existing subscriptions between billing intervals is not enabled by these scripts.

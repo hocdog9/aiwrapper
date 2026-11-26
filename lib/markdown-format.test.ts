@@ -9,7 +9,7 @@ import { normalizeMarkdown } from "./markdown-format";
 
 // Render with the same plugins as the message UI, rather than only checking the regex.
 function render(text: string) {
-  return renderToStaticMarkup(React.createElement(ReactMarkdown, { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex], children: normalizeMarkdown(text) }));
+  return renderToStaticMarkup(React.createElement(ReactMarkdown, { remarkPlugins: [remarkMath], rehypePlugins: [rehypeKatex] }, normalizeMarkdown(text)));
 }
 test("restaurant price tiers preserve separate list entries and bold names", () => {
   const html = render("1. **Pizzeria Libretto** ($$) – Pizza.\n2. **San Remo Bakery** ($) – Pastries.\n3. **Aloette Go** ($$) – Burgers.");

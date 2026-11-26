@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import Stripe from "stripe";
+import { premiumPriceId, validPremiumPrice } from "@/lib/billing-plans";
 import { TOPUP_AMOUNT, TOPUP_CURRENCY, TOPUP_CREDITS } from "@/lib/billing-topup";
 import { authenticateRequest } from "@/lib/server/auth";
 
@@ -23,7 +24,9 @@ export async function POST(request: NextRequest) {
   const credits = TOPUP_CREDITS;
   if (!isTopup && body.planId !== "premium") return NextResponse.json({ error: "Choose Premium to upgrade." }, { status: 400 });
   const planId = "premium";
-  const priceId = process.env.BILLING_PREMIUM_PRICE_ID;
+  const interval = body.interval ?? "month";
+  if (!isTopup && interval !== "month" && interval !== "year") return NextResponse.json({ error: "Choose monthly or annual billing." }, { status: 400 });
+  const priceId = premiumPriceId(interval);
   const baseUrl = appUrl();
   const secretKey = process.env.BILLING_SECRET_KEY;
   if ((!isTopup && !priceId) || !baseUrl || !secretKey) {
@@ -32,6 +35,11 @@ export async function POST(request: NextRequest) {
 
   try {
     const stripe = new Stripe(secretKey);
+    if (!isTopup && !validPremiumPrice(await stripe.prices.retrieve(priceId!), interval)) {
+      return NextResponse.json({ error: "This plan's billing price is not configured correctly." }, { status: 503 });
+    }
+    const { error: refreshError } = await context.adminClient.rpc("refresh_billing_allowance", { p_user_id: context.user.id });
+    if (refreshError) return NextResponse.json({ error: "Billing storage needs the annual billing migration." }, { status: 503 });
     const { data: billing, error: lookupError } = await context.adminClient.from("user_billing")
       .select("stripe_customer_id, stripe_subscription_id, included_credits, credits_used, current_period_end, plan_id, subscription_status").eq("user_id", context.user.id).maybeSingle();
     if (lookupError || !billing) return NextResponse.json({ error: "Billing profile not found." }, { status: 503 });
@@ -67,11 +75,11 @@ export async function POST(request: NextRequest) {
       line_items: isTopup ? [{ price_data: { currency: TOPUP_CURRENCY, unit_amount: TOPUP_AMOUNT,
         product_data: { name: "Merune usage top-up", description: "One-time extra usage. Expires at the end of your current billing period." } }, quantity: 1 }] : [{ price: priceId!, quantity: 1 }],
       client_reference_id: context.user.id,
-      metadata: isTopup ? { userId: context.user.id, purchase: "topup", credits: String(credits) } : { userId: context.user.id, planId },
-      ...(!isTopup ? { subscription_data: { metadata: { userId: context.user.id, planId } } } : {}),
+      metadata: isTopup ? { userId: context.user.id, purchase: "topup", credits: String(credits) } : { userId: context.user.id, planId, interval },
+      ...(!isTopup ? { subscription_data: { metadata: { userId: context.user.id, planId, interval } } } : {}),
       success_url: `${baseUrl}/?billing=return`,
       cancel_url: `${baseUrl}/?billing=cancelled`,
-    }, { idempotencyKey: `checkout-${context.user.id}-${isTopup ? "topup" : planId}-${Date.now()}` });
+    }, { idempotencyKey: `checkout-${context.user.id}-${isTopup ? "topup" : `${planId}-${interval}`}-${Date.now()}` });
     return NextResponse.json({ url: session.url });
   } catch {
     return NextResponse.json({ error: "Could not start secure checkout. Try again later." }, { status: 502 });

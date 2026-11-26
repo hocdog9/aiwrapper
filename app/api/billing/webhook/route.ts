@@ -7,41 +7,29 @@ export const runtime = "nodejs";
 
 async function applySubscription(
   admin: NonNullable<ReturnType<typeof createAdminClient>>,
-  input: {
-    userId: string;
-    planId: string;
-    customerId: string;
-    subscriptionId: string | null;
-    status: string;
-    periodStart?: number;
-    periodEnd?: number;
-  },
+  subscription: Stripe.Subscription,
+  eventCreated: number,
+  fallbackUserId?: string,
 ) {
-  const allowedPlans = ["free", "premium"];
-  const planId = allowedPlans.includes(input.planId) ? input.planId : "free";
-  const { data: plan, error: planError } = await admin.from("plan_catalog")
-    .select("monthly_credits").eq("plan_id", planId).maybeSingle();
-  if (planError || !plan) throw new Error("Plan configuration is missing.");
-
-  const { data: current, error: currentError } = await admin.from("user_billing")
-    .select("plan_id, current_period_start").eq("user_id", input.userId).maybeSingle();
-  if (currentError) throw new Error("Could not read billing entitlement.");
-  const periodStart = input.periodStart ? new Date(input.periodStart * 1000).toISOString() : current?.current_period_start;
-  const newBillingPeriod = Boolean(input.periodStart && current?.current_period_start && input.periodStart * 1000 !== new Date(current.current_period_start).getTime());
-  const planChanged = Boolean(current && current.plan_id !== planId);
-
-  const { error } = await admin.from("user_billing").upsert({
-    user_id: input.userId,
-    plan_id: planId,
-    subscription_status: input.status,
-    included_credits: plan.monthly_credits,
-    ...(!current || newBillingPeriod || planChanged ? { credits_used: 0 } : {}),
-    stripe_customer_id: input.customerId,
-    stripe_subscription_id: input.subscriptionId,
-    ...(periodStart ? { current_period_start: periodStart } : {}),
-    ...(input.periodEnd ? { current_period_end: new Date(input.periodEnd * 1000).toISOString() } : {}),
-    updated_at: new Date().toISOString(),
-  }, { onConflict: "user_id" });
+  const userId = subscription.metadata.userId ?? fallbackUserId;
+  if (!userId) return;
+  const item = subscription.items.data[0];
+  const interval = item?.price.recurring?.interval;
+  if (!item || (interval !== "month" && interval !== "year") || item.price.recurring?.interval_count !== 1) {
+    throw new Error("Unsupported subscription billing interval.");
+  }
+  const ended = ["canceled", "incomplete_expired"].includes(subscription.status);
+  const { error } = await admin.rpc("sync_billing_subscription", {
+    p_user_id: userId,
+    p_plan_id: ended ? "free" : subscription.metadata.planId === "premium" ? "premium" : "free",
+    p_customer_id: typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id,
+    p_subscription_id: subscription.id,
+    p_status: ended ? "active" : subscription.status,
+    p_interval: ended ? "month" : interval,
+    p_period_start: new Date(item.current_period_start * 1000).toISOString(),
+    p_period_end: new Date(item.current_period_end * 1000).toISOString(),
+    p_event_created: eventCreated,
+  });
   if (error) throw new Error("Could not update billing entitlement.");
 }
 
@@ -89,43 +77,22 @@ export async function POST(request: NextRequest) {
         const { error } = await admin.rpc("apply_billing_topup", topup);
         if (error) throw new Error("Could not apply top-up.");
       }
-      if (session.mode === "subscription" && userId && planId && customerId) {
-        let subscription: Stripe.Subscription | null = null;
-        if (subscriptionId) subscription = await new Stripe(secretKey).subscriptions.retrieve(subscriptionId);
-        await applySubscription(admin, {
-          userId,
-          planId,
-          customerId,
-          subscriptionId,
-          status: subscription?.status ?? "active",
-          periodStart: subscription?.items.data[0]?.current_period_start,
-          periodEnd: subscription?.items.data[0]?.current_period_end,
-        });
+      if (session.mode === "subscription" && userId && planId && customerId && subscriptionId) {
+        const subscription = await new Stripe(secretKey).subscriptions.retrieve(subscriptionId);
+        await applySubscription(admin, subscription, verifiedEvent.created, userId);
       }
     } else if (["customer.subscription.created", "customer.subscription.updated", "customer.subscription.deleted"].includes(verifiedEvent.type)) {
-      const subscription = verifiedEvent.data.object as Stripe.Subscription;
-      const userId = subscription.metadata.userId;
-      const customerId = typeof subscription.customer === "string" ? subscription.customer : subscription.customer.id;
-      if (userId) {
-        const isDeleted = verifiedEvent.type === "customer.subscription.deleted";
-        await applySubscription(admin, {
-          userId,
-          planId: isDeleted ? "free" : subscription.metadata.planId ?? "free",
-          customerId,
-          subscriptionId: isDeleted ? null : subscription.id,
-          status: isDeleted ? "active" : subscription.status,
-          periodStart: subscription.items.data[0]?.current_period_start,
-          periodEnd: subscription.items.data[0]?.current_period_end,
-        });
-      }
-    } else if (verifiedEvent.type === "invoice.payment_failed") {
+      const eventSubscription = verifiedEvent.data.object as Stripe.Subscription;
+      // Re-read current Stripe state rather than replaying stale status from an old delivery.
+      const subscription = await new Stripe(secretKey).subscriptions.retrieve(eventSubscription.id);
+      await applySubscription(admin, subscription, verifiedEvent.created);
+    } else if (["invoice.payment_failed", "invoice.paid"].includes(verifiedEvent.type)) {
       const invoice = verifiedEvent.data.object as Stripe.Invoice;
       const invoiceSubscription = invoice.parent?.subscription_details?.subscription;
       const subscriptionId = typeof invoiceSubscription === "string" ? invoiceSubscription : invoiceSubscription?.id;
       if (subscriptionId) {
-        const { error } = await admin.from("user_billing").update({ subscription_status: "past_due", updated_at: new Date().toISOString() })
-          .eq("stripe_subscription_id", subscriptionId);
-        if (error) throw new Error("Could not update failed-payment status.");
+        const subscription = await new Stripe(secretKey).subscriptions.retrieve(subscriptionId);
+        await applySubscription(admin, subscription, verifiedEvent.created);
       }
     }
 

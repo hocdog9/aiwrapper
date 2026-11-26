@@ -33,7 +33,7 @@ Improvements to implement and verify before live payments:
 - Read `BILLING_SECRET_KEY` only from `.env.local` or deployment secrets; never print it or pass it in shell arguments.
 - Inspect sandbox products and prices before creating duplicates.
 - Create/reuse Merune Premium and its monthly Price after price and currency are specified.
-- Save `BILLING_PREMIUM_PRICE_ID`, `BILLING_WEBHOOK_SECRET`, and `APP_URL` securely.
+- Save `BILLING_PREMIUM_MONTHLY_PRICE_ID`, `BILLING_PREMIUM_ANNUAL_PRICE_ID`, `BILLING_WEBHOOK_SECRET`, and `APP_URL` securely.
 - Configure the customer portal and a snapshot webhook at `/api/billing/webhook`.
 - Include checkout completion, subscription lifecycle events, `invoice.paid`, and `invoice.payment_failed` after their handlers are implemented.
 - Keep sandbox and live credentials, prices, webhook secrets, and test entitlement data separate. Do not run test purchases against live customer billing records.
@@ -59,7 +59,7 @@ Test first purchase, duplicate clicks, webhook redelivery, out-of-order events, 
 
 Verified through Stripe's API:
 
-- Premium: CA$9.99/month, Price `price_1UaGs2GZBGrNJ51pVSgdfonS`.
+- Premium: CA$6.90/month (`price_1UeEL8GZBGrNJ51pysmDxGoi`) or CA$69/year (`price_1UeEL8GZBGrNJ51pe8qa8Lga`).
 - Default portal `bpc_1UbmV2GZBGrNJ51pDvXC0Njh`: card updates and invoices enabled, cancellation at period end, subscription updates disabled.
 - Enabled webhook `we_1UbmctGZBGrNJ51pFSXfozcC` at `https://aiwrapper-five.vercel.app/api/billing/webhook`, using the installed SDK's API version and the five currently implemented event types.
 - Local `APP_URL` and `BILLING_WEBHOOK_SECRET` saved alongside the sandbox secret key and Price ID. Secrets are not recorded in this document.
