@@ -128,6 +128,14 @@ async function authenticatedFetch(path: string, init: RequestInit = {}): Promise
   return fetch(path, { ...init, headers });
 }
 
+function TrashIcon() {
+  return (
+    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                  <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
+                </svg>
+  );
+}
+
 function UploadIcon() {
   return (
             <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
@@ -1248,9 +1256,7 @@ export default function Home() {
                 </svg>
               </button>
               <button type="button" className={`${styles.folderAction} ${styles.dangerAction}`} disabled={navigationBusy} title="Delete project" aria-label={`Delete project ${project.name}`} onClick={() => void deleteProject(project)}>
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
-                </svg>
+                <TrashIcon />
               </button>
               </div>
               {expanded && <div className={styles.folderContents}>
@@ -1264,7 +1270,7 @@ export default function Home() {
                     event.target.value = "";
                   }} />
                   <ul className={styles.projectFiles}>
-                    {project.files.map(file => <li key={file.id}><span>{file.name}</span><button type="button" className={styles.deleteButton} disabled={navigationBusy} aria-label={`Remove shared file ${file.name}`} onClick={() => void removeProjectFile(file.id)}>×</button></li>)}
+                    {project.files.map(file => <li key={file.id}><span>{file.name}</span><button type="button" className={`${styles.folderAction} ${styles.dangerAction}`} disabled={navigationBusy} title="Remove shared file" aria-label={`Remove shared file ${file.name}`} onClick={() => void removeProjectFile(file.id)}><TrashIcon /></button></li>)}
                   </ul>
                 </details>}
               </div>}
@@ -1296,9 +1302,7 @@ export default function Home() {
         </svg>
       </button>
       <button type="button" className={`${styles.folderAction} ${styles.dangerAction}`} disabled={navigationBusy} title="Delete chat" aria-label="Delete chat" onClick={() => { const session = sessions.find(s => s.id === chatMenu); setChatMenu(null); if (session) deleteChat(session); }}>
-        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-          <path d="M3 6h18M9 6V3h6v3M5 6l1 15h12l1-15M10 10v7M14 10v7" />
-        </svg>
+        <TrashIcon />
       </button>
           </div>
         </div>
